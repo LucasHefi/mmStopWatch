@@ -1,7 +1,7 @@
 import { startHttpServer } from './controlPlaneServer'
 
 async function main(): Promise<void> {
-  const rawPort = process.env.MMSTOPWATCH_CONTROL_PLANE_PORT || '0'
+  const rawPort = process.env.MMSTOPWATCH_CONTROL_PLANE_PORT || '9376'
   const port = Number(rawPort)
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error('MMSTOPWATCH_CONTROL_PLANE_PORT must be an integer between 0 and 65535')

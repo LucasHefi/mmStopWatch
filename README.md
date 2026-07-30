@@ -1,6 +1,6 @@
 # mmStopWatch
 
-[![Version](https://img.shields.io/badge/version-1.6.1-2563eb?logo=semantic-release&logoColor=white)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.7.0-rc.1-2563eb?logo=semantic-release&logoColor=white)](CHANGELOG.md)
 [![CI](https://github.com/LucasHefi/mmStopWatch/actions/workflows/verify-and-release.yml/badge.svg?branch=main)](https://github.com/LucasHefi/mmStopWatch/actions/workflows/verify-and-release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 
@@ -18,12 +18,15 @@ A lightweight local desktop stopwatch that integrates directly with Markdown not
 
 ## Current status
 
-- **Application version:** `1.6.1`
+- **Application version:** `1.7.0-rc.1`
 - **Platforms:** Windows, Linux and macOS bundles are configured
 - **CI:** pull requests and pushes to `main` run tests, the frontend build and `cargo check` on all three operating systems
 - **Releases:** tags matching `v*` build platform installers and publish a GitHub Release
 - **Control plane:** an authenticated, read-only localhost development API is available explicitly through `npm run control-plane:dev`
+- **MCP:** a stdio JSON-RPC adapter is available through `npm run mcp:stdio`; it exposes only the read-only API boundary and never exposes mutation tools
+- **CLI:** the versioned `mmstopwatch` client is available through `npm run cli` or the package `bin`; it supports status, capabilities and the currently declared read-only API routes
 - **Updater:** the production `latest.json` metadata and physical smoke verification are still an open release gate
+- **RC gate:** the current prerelease evidence and rollback boundary are tracked in [docs/release-1.7.0-rc.1.md](docs/release-1.7.0-rc.1.md)
 
 The version is kept aligned in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
 
@@ -100,9 +103,13 @@ npm run typecheck        # TypeScript check without emitting files
 npm run build            # TypeScript check + production frontend build
 npm run tauri:check      # Locked Rust/Tauri dependency check
 npm run control-plane:dev # Authenticated read-only localhost API
+npm run mcp:stdio        # MCP stdio adapter for an already-running API
+npm run cli -- --help    # Versioned CLI client and exit-code contract
 ```
 
-The control plane binds only to `127.0.0.1` and requires a bearer token printed to stderr. It is not automatically started or packaged into the desktop app yet; MCP and CLI clients are planned as later control-plane slices.
+The control plane binds only to `127.0.0.1` and requires a bearer token printed to stderr. The MCP adapter reads `MMSTOPWATCH_CONTROL_PLANE_URL` (default `http://127.0.0.1:9376`) and `MMSTOPWATCH_CONTROL_PLANE_TOKEN` from its environment; it writes JSON-RPC responses only to stdout and diagnostics only to stderr. It pins MCP protocol version `2025-06-18`, requires `initialize` followed by `notifications/initialized`, and advertises only the currently implemented `status` and `capabilities` tools. Use [mcp-config.example.json](mcp-config.example.json) as a client configuration template. The adapter is not automatically started or packaged into the desktop app yet.
+
+The CLI reads `MMSTOPWATCH_CONTROL_PLANE_URL` and `MMSTOPWATCH_CONTROL_PLANE_TOKEN`, or a JSON config passed through `--config`/`MMSTOPWATCH_CONFIG`; see [cli-config.example.json](cli-config.example.json). Tokens are never accepted as command-line arguments. `--json` returns the versioned API envelope, `--request-id` preserves caller correlation, and mutating command groups fail closed until the corresponding API capability and explicit confirmation are present.
 
 ## Usage
 
@@ -134,8 +141,10 @@ Roadmap status is based on the shipped release history in `CHANGELOG.md`, the cu
 
 - ⏳ **Control-plane lifecycle:** decide how the authenticated local API should be started, supervised and packaged with the desktop application.
 - ⏳ **Stable client contract:** finish the versioned status/capability contract and safe command envelope needed by external clients.
-- ⏳ **MCP integration:** add an MCP client slice on top of the local control plane.
-- ⏳ **CLI integration:** add a command-line client for status and approved local operations.
+- ✅ **MCP integration — stdio slice:** JSON-RPC lifecycle (`initialize`, `ping`, `tools/list`, `tools/call`), authenticated API adapter, retry/timeout handling, redacted errors and read-only tool boundary.
+- ✅ **CLI integration — versioned read-only slice:** `mmstopwatch` bin/script with config discovery, stable exit codes, request IDs, timeouts, JSON/human output and confirmation gates.
+- ⏳ **Control-plane resource handlers:** implement the currently declared notes, stats and report routes before exposing any mutation tools.
+- ⏳ **CLI command completion:** wire timers, profiles and config only after matching application-service/API capabilities exist.
 - ⏳ **Release acceptance:** complement the automated CI matrix with fresh install, startup, bundle and updater smoke verification on the supported platforms.
 
 ## CI and releases
@@ -147,7 +156,7 @@ The workflow in `.github/workflows/verify-and-release.yml` runs on pull requests
 3. Build the frontend.
 4. Run `cargo check --locked` through `npm run tauri:check`.
 
-When a tag such as `v1.6.1` is pushed, the workflow additionally builds Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI) bundles, generates release metadata and publishes a GitHub Release.
+When a tag such as `v1.7.0-rc.1` is pushed, the workflow additionally builds Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI) bundles, generates release metadata and publishes a GitHub Release.
 
 ## Configuration
 
@@ -156,7 +165,7 @@ When a tag such as `v1.6.1` is pushed, the workflow additionally builds Linux (`
 - Time format (`HH:mm:ss` or seconds)
 - Daily goals, estimates, tags, notifications and report settings
 
-The app stores profile data under `.mmST-{nick}` inside the selected vault. It does not grant static access to the user's home directory or Windows drive; the selected vault is authorized through the Tauri runtime scope.
+The app stores profile data under `.mmST-{nick}` inside the selected vault. It does not grant static access to the user's home directory or Windows drive; the selected vault is authorized through the Tauri runtime scope. The AI control-plane boundary and permission matrix are documented in [docs/security-threat-model.md](docs/security-threat-model.md).
 
 ## License
 

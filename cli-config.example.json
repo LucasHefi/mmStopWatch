@@ -1,0 +1,4 @@
+{
+  "controlPlaneUrl": "http://127.0.0.1:9376",
+  "token": "<provide-through-your-secret-store>"
+}

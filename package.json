@@ -1,12 +1,15 @@
 {
   "name": "mmstopwatch",
   "private": true,
-  "version": "1.6.1",
+  "version": "1.7.0-rc.1",
   "author": "Lukáš Hefner (mediamaker.cz)",
   "description": "Stopwatch for Obsidian & etc.",
   "homepage": "https://mediamaker.cz",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "mmstopwatch": "cli/mmstopwatch.mjs"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -18,6 +21,8 @@
     "tauri:build:macos": "tauri build --bundles dmg,app",
     "tauri:build:windows": "tauri build --bundles nsis,msi",
     "control-plane:dev": "tsx tools/control-plane-http.ts",
+    "mcp:stdio": "tsx tools/mcp-stdio.ts",
+    "cli": "node cli/mmstopwatch.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

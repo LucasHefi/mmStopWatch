@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.7.0-rc.1] - 2026-07-30
+### Added
+- MCP stdio JSON-RPC adapter with strict `initialize` → `notifications/initialized` lifecycle, pinned protocol version `2025-06-18`, no-ID notification handling and idempotent EOF/signal cleanup
+- MCP argument validation, JSON-RPC protocol error mapping, redacted transport failures and closed-session cancellation
+- Versioned `mmstopwatch` CLI slice with JSON/human output, request IDs, stable exit codes, config examples and confirmation gates
+- Control-plane threat model and UI/API/MCP/CLI permission matrix
+
+### Changed
+- MCP discovery advertises only API-backed `status` and `capabilities`; future command-group schemas remain planned but are not exposed as unsupported tools
+- Development control-plane default port is aligned with MCP/CLI examples at `9376`; port `0` remains an explicit override
+- GitHub tag releases containing a prerelease suffix are marked as prereleases
+
+### Verification boundary
+- Fresh local verification: `npm test` 120/120, `npm run build`, `npm run tauri:check`, `npx tsc --noEmit --incremental false` and `git diff --check` passed
+- This RC is not production-ready: GitHub Actions matrix readback, Windows/macOS install smoke, updater metadata/signing, rollback, owner approval and real mutation backend handlers remain OPEN
+
+---
+
 ## [1.6.1] - 2026-07-30
 ### Added
 - Typed application command contracts for status, timer and note operations, including versioned envelopes, request metadata, idempotency fields and lifecycle events

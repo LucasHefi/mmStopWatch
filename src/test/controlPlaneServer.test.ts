@@ -39,7 +39,7 @@ describe('localhost control plane HTTP boundary', () => {
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
       protocolVersion: '1',
-      data: { appVersion: '1.6.1', ready: true },
+      data: { appVersion: '1.7.0-rc.1', ready: true },
     })
   })
 
@@ -58,6 +58,24 @@ describe('localhost control plane HTTP boundary', () => {
     const notes = await fetch(`${server.url}/api/v1/notes`, { headers })
     expect(notes.status).toBe(501)
     await expect(notes.json()).resolves.toMatchObject({ ok: false, error: { code: 'NOT_IMPLEMENTED' } })
+  })
+
+  it('rejects oversized request bodies before command dispatch and preserves request correlation', async () => {
+    const server = await startHttpServer({ token: 'test-token', maxBodyBytes: 16 })
+    servers.push(server)
+    const headers = { Authorization: `Bearer ${server.token}`, 'X-Request-Id': 'boundary-test-1' }
+
+    const status = await fetch(`${server.url}/api/v1/status`, { headers })
+    expect(status.headers.get('cache-control')).toBe('no-store')
+    await expect(status.json()).resolves.toMatchObject({ requestId: 'boundary-test-1' })
+
+    const oversized = await fetch(`${server.url}/api/v1/reports/preview`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: '2026-01-01', to: '2026-12-31', format: 'markdown' }),
+    })
+    expect(oversized.status).toBe(413)
+    await expect(oversized.json()).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } })
   })
 
   it('rejects non-loopback hosts and unapproved origins', async () => {

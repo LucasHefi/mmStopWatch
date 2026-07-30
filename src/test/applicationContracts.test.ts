@@ -26,7 +26,7 @@ describe('application command contracts', () => {
   it('returns a versioned success envelope from a typed handler', async () => {
     const dispatcher = new ApplicationDispatcher({
       status: commandHandler(async (_input, context) => ({
-        appVersion: '1.6.1',
+        appVersion: '1.7.0-rc.1',
         protocolVersion: '1',
         ready: true,
         activeProfileId: context.actor,
@@ -44,7 +44,7 @@ describe('application command contracts', () => {
       protocolVersion: '1',
       requestId: 'req-1',
       data: {
-        appVersion: '1.6.1',
+        appVersion: '1.7.0-rc.1',
         protocolVersion: '1',
         ready: true,
         activeProfileId: 'cli',
