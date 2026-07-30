@@ -123,6 +123,14 @@ describe('application command contracts', () => {
   })
 
   it('models note outputs and lifecycle events as explicit discriminated types', () => {
+    const noteRequest: CommandRequest<'note_save'> = {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: 'req-note-save',
+      actor: 'cli',
+      idempotencyKey: 'idem-note-1',
+      command: 'note_save',
+      input: { relativePath: 'Projects/Note.md', durationMs: 2_000, reset: false },
+    }
     const note: NoteCommandOutput = {
       note: {
         relativePath: 'Projects/Note.md',
@@ -146,6 +154,7 @@ describe('application command contracts', () => {
     }
 
     expect(note.note.relativePath).toBe('Projects/Note.md')
+    expect(noteRequest.input.durationMs).toBe(2_000)
     expect(EVENT_TYPES).toContain(event.type)
     expect(event.revision).toBe('revision-8')
   })
