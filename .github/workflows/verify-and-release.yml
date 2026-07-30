@@ -133,4 +133,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/**/**
+          files: |
+            artifacts/**/mmStopWatch_*.deb
+            artifacts/**/mmStopWatch_*.AppImage
+            artifacts/**/mmStopWatch_*.dmg
+            artifacts/**/mmStopWatch_*-setup.exe
+            artifacts/**/mmStopWatch_*.msi
+            artifacts/**/BUILD-METADATA.json
+            artifacts/**/SHA256SUMS.txt
