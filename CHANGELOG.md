@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.1] - 2026-07-30
+### Added
+- Typed application command contracts for status, timer and note operations, including versioned envelopes, request metadata, idempotency fields and lifecycle events
+
+### Fixed
+- GitHub Actions release publishing now stages only unique distributable platform installers and explicitly named per-platform metadata files
+- Release staging fails on missing or duplicate expected assets instead of uploading nested bundle internals or colliding basenames
+
+### Verification boundary
+- Local tests, frontend build, locked Rust check, YAML policy validation and release fixture verification passed
+- Production updater metadata, tagged GitHub Actions release readback and manual desktop smoke remain open release gates
+
+---
+
 ## [1.6.0] - 2026-07-24
 ### Added
 - Cross-platform packaging targets for Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI)

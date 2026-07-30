@@ -1,6 +1,6 @@
 [package]
 name = "mmstopwatch"
-version = "1.6.0"
+version = "1.6.1"
 description = "Stopwatch for Obsidian & etc."
 authors = ["Lukáš Hefner <mediamaker.cz>"]
 edition = "2021"

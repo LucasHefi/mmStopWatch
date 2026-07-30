@@ -1,6 +1,6 @@
 # mmStopWatch
 
-[![Version](https://img.shields.io/badge/version-1.6.0-2563eb?logo=semantic-release&logoColor=white)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.6.1-2563eb?logo=semantic-release&logoColor=white)](CHANGELOG.md)
 [![CI](https://github.com/LucasHefi/mmStopWatch/actions/workflows/verify-and-release.yml/badge.svg?branch=main)](https://github.com/LucasHefi/mmStopWatch/actions/workflows/verify-and-release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 
@@ -18,7 +18,7 @@ A lightweight local desktop stopwatch that integrates directly with Markdown not
 
 ## Current status
 
-- **Application version:** `1.6.0`
+- **Application version:** `1.6.1`
 - **Platforms:** Windows, Linux and macOS bundles are configured
 - **CI:** pull requests and pushes to `main` run tests, the frontend build and `cargo check` on all three operating systems
 - **Releases:** tags matching `v*` build platform installers and publish a GitHub Release
@@ -147,7 +147,7 @@ The workflow in `.github/workflows/verify-and-release.yml` runs on pull requests
 3. Build the frontend.
 4. Run `cargo check --locked` through `npm run tauri:check`.
 
-When a tag such as `v1.6.0` is pushed, the workflow additionally builds Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI) bundles, generates release metadata and publishes a GitHub Release.
+When a tag such as `v1.6.1` is pushed, the workflow additionally builds Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI) bundles, generates release metadata and publishes a GitHub Release.
 
 ## Configuration
 
