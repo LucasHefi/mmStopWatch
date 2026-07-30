@@ -8,17 +8,19 @@ import type {
 } from './contracts'
 import { createSafeError, internalError } from './errors'
 
-type CommandHandler<C extends CommandName> = (
+export type CommandHandler<C extends CommandName> = (
   input: CommandInput[C],
   context: CommandContext,
 ) => CommandOutput[C] | Promise<CommandOutput[C]>
 
+export type CommandRegistry = Partial<{
+  [C in CommandName]: CommandHandler<C>
+}>
+
 type AnyCommandHandler = (input: unknown, context: CommandContext) => unknown
 
-type CommandHandlers = Partial<Record<CommandName, AnyCommandHandler>>
-
 export class ApplicationDispatcher {
-  constructor(private readonly handlers: CommandHandlers = {}) {}
+  constructor(private readonly handlers: CommandRegistry = {}) {}
 
   async dispatch<C extends CommandName>(request: CommandRequest<C>): Promise<CommandResult<CommandOutput[C]>> {
     if (request.protocolVersion !== '1' || !request.requestId.trim()) {
@@ -30,7 +32,7 @@ export class ApplicationDispatcher {
       }
     }
 
-    const handler = this.handlers[request.command]
+    const handler = this.handlers[request.command] as AnyCommandHandler | undefined
     if (!handler) {
       return {
         ok: false,
@@ -59,6 +61,6 @@ export class ApplicationDispatcher {
   }
 }
 
-export function commandHandler<C extends CommandName>(handler: CommandHandler<C>): AnyCommandHandler {
-  return handler as AnyCommandHandler
+export function commandHandler<C extends CommandName>(handler: CommandHandler<C>): CommandHandler<C> {
+  return handler
 }
