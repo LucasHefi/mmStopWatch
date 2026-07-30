@@ -39,7 +39,7 @@ describe('localhost control plane HTTP boundary', () => {
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
       protocolVersion: '1',
-      data: { appVersion: '1.7.0-rc.1', ready: true },
+      data: { appVersion: '1.7.0-rc.2', ready: true },
     })
   })
 

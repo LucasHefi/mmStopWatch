@@ -1,6 +1,6 @@
 # mmStopWatch
 
-[![Version](https://img.shields.io/badge/version-1.7.0-rc.1-2563eb?logo=semantic-release&logoColor=white)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.7.0-rc.2-2563eb?logo=semantic-release&logoColor=white)](CHANGELOG.md)
 [![CI](https://github.com/LucasHefi/mmStopWatch/actions/workflows/verify-and-release.yml/badge.svg?branch=main)](https://github.com/LucasHefi/mmStopWatch/actions/workflows/verify-and-release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 
@@ -18,7 +18,7 @@ A lightweight local desktop stopwatch that integrates directly with Markdown not
 
 ## Current status
 
-- **Application version:** `1.7.0-rc.1`
+- **Application version:** `1.7.0-rc.2`
 - **Platforms:** Windows, Linux and macOS bundles are configured
 - **CI:** pull requests and pushes to `main` run tests, the frontend build and `cargo check` on all three operating systems
 - **Releases:** tags matching `v*` build platform installers and publish a GitHub Release
@@ -26,7 +26,7 @@ A lightweight local desktop stopwatch that integrates directly with Markdown not
 - **MCP:** a stdio JSON-RPC adapter is available through `npm run mcp:stdio`; it exposes only the read-only API boundary and never exposes mutation tools
 - **CLI:** the versioned `mmstopwatch` client is available through `npm run cli` or the package `bin`; it supports status, capabilities and the currently declared read-only API routes
 - **Updater:** the production `latest.json` metadata and physical smoke verification are still an open release gate
-- **RC gate:** the current prerelease evidence and rollback boundary are tracked in [docs/release-1.7.0-rc.1.md](docs/release-1.7.0-rc.1.md)
+- **RC gate:** the current prerelease evidence and rollback boundary are tracked in [docs/release-1.7.0-rc.2.md](docs/release-1.7.0-rc.2.md)
 
 The version is kept aligned in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
 
@@ -156,7 +156,7 @@ The workflow in `.github/workflows/verify-and-release.yml` runs on pull requests
 3. Build the frontend.
 4. Run `cargo check --locked` through `npm run tauri:check`.
 
-When a tag such as `v1.7.0-rc.1` is pushed, the workflow additionally builds Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI) bundles, generates release metadata and publishes a GitHub Release.
+When a tag such as `v1.7.0-rc.2` is pushed, the workflow additionally builds Linux (`.deb`, AppImage), macOS (`.dmg`, `.app`) and Windows (NSIS, MSI) bundles, generates release metadata and publishes a GitHub Release.
 
 ## Configuration
 

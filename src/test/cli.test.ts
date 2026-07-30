@@ -29,7 +29,7 @@ function runCli(args: string[], env: Record<string, string | undefined> = {}): P
 
 describe('mmstopwatch CLI contract', () => {
   it('prints version and help without requiring a control-plane token', async () => {
-    await expect(runCli(['--version'])).resolves.toMatchObject({ code: 0, stdout: '1.7.0-rc.1\n' })
+    await expect(runCli(['--version'])).resolves.toMatchObject({ code: 0, stdout: '1.7.0-rc.2\n' })
     await expect(runCli(['--help'])).resolves.toMatchObject({ code: 0, stderr: expect.stringContaining('mmstopwatch status') })
   })
 
@@ -45,7 +45,7 @@ describe('mmstopwatch CLI contract', () => {
       expect(JSON.parse(result.stdout)).toMatchObject({
         ok: true,
         requestId: 'cli-test-1',
-        data: { appVersion: '1.7.0-rc.1', ready: true },
+        data: { appVersion: '1.7.0-rc.2', ready: true },
       })
     } finally {
       await server.close()
@@ -60,7 +60,7 @@ describe('mmstopwatch CLI contract', () => {
         MMSTOPWATCH_CONTROL_PLANE_TOKEN: server.token,
       })
       expect(result.code).toBe(0)
-      expect(result.stdout).toContain('mmStopWatch 1.7.0-rc.1')
+      expect(result.stdout).toContain('mmStopWatch 1.7.0-rc.2')
       expect(result.stdout).toContain('ready')
     } finally {
       await server.close()

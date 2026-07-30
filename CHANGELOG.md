@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.0-rc.2] - 2026-07-30
+### Fixed
+- Windows MCP stdio process smoke now launches the npm command through `ComSpec` instead of spawning `npm.cmd` directly, avoiding Node `spawn EINVAL` on GitHub Actions
+
+### Verification boundary
+- RC1 GitHub run passed macOS and Ubuntu verification but failed only the Windows MCP process smoke at `spawn(npm.cmd, ...)`
+- RC2 focused MCP tests, TypeScript checks and local release gates must be rerun; cross-platform RC2 workflow remains the authoritative gate
+
+---
+
 ## [1.7.0-rc.1] - 2026-07-30
 ### Added
 - MCP stdio JSON-RPC adapter with strict `initialize` → `notifications/initialized` lifecycle, pinned protocol version `2025-06-18`, no-ID notification handling and idempotent EOF/signal cleanup

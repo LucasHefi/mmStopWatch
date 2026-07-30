@@ -43,7 +43,7 @@ describe('mmStopWatch MCP stdio contract', () => {
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'mmstopwatch', version: '1.7.0-rc.1' },
+        serverInfo: { name: 'mmstopwatch', version: '1.7.0-rc.2' },
       },
     })
   })
@@ -204,18 +204,23 @@ describe('mmStopWatch MCP stdio contract', () => {
         result: { isError: false, content: [{ type: 'text' }] },
       })
       const text = (result as { result: { content: [{ text: string }] } }).result.content[0].text
-      expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.1', ready: true } })
+      expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.2', ready: true } })
     } finally {
       await server.close()
     }
   })
 
   it('keeps the stdio stream parseable when launched through npm silently', async () => {
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-    const child = spawn(npm, ['--silent', 'run', 'mcp:stdio'], {
+    const isWindows = process.platform === 'win32'
+    const executable = isWindows ? (process.env.ComSpec || process.env.COMSPEC || 'cmd.exe') : 'npm'
+    const args = isWindows
+      ? ['/d', '/s', '/c', 'npm.cmd --silent run mcp:stdio']
+      : ['--silent', 'run', 'mcp:stdio']
+    const child = spawn(executable, args, {
       cwd: process.cwd(),
       env: { ...process.env, MMSTOPWATCH_CONTROL_PLANE_TOKEN: 'test-token' },
       stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
     })
     let stdout = ''
     let stderr = ''
