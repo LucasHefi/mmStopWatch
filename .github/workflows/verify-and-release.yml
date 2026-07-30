@@ -144,8 +144,8 @@ jobs:
               matches+=("$file")
             done < <(find "artifacts/mmStopWatch-${platform}" -type f -name "$pattern" -print)
             if [[ "${#matches[@]}" -ne 1 ]]; then
-              printf 'Expected exactly one %s asset for %s, found %s\\n' "$pattern" "$platform" "${#matches[@]}" >&2
-              printf '%s\\n' "${matches[@]}" >&2
+              printf 'Expected exactly one %s asset for %s, found %s\n' "$pattern" "$platform" "${#matches[@]}" >&2
+              printf '%s\n' "${matches[@]}" >&2
               exit 1
             fi
             printf '%s' "${matches[0]}"
@@ -154,7 +154,7 @@ jobs:
           copy_asset() {
             local source="$1"
             local target="$2"
-            [[ ! -e "release-assets/${target}" ]] || { printf 'Duplicate staged asset: %s\\n' "$target" >&2; exit 1; }
+            [[ ! -e "release-assets/${target}" ]] || { printf 'Duplicate staged asset: %s\n' "$target" >&2; exit 1; }
             cp "$source" "release-assets/${target}"
           }
 
@@ -170,7 +170,7 @@ jobs:
           done
 
           test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 11
-          find release-assets -maxdepth 1 -type f -printf '%f\\n' | sort
+          find release-assets -maxdepth 1 -type f -printf '%f\n' | sort
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
