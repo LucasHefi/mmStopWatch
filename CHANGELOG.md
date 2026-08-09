@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — 2.0 hardening
+### Added
+- React-free TimerEngine adapter with monotonic work/pause segments and one visibility-aware central ticker
+- Crash recovery checkpoints, recovery overlay and bounded elapsed-time estimation after an interrupted running session
+- Atomic Markdown/config writes with content fingerprints, conflict detection and retryable operation journal
+- Incremental NoteIndex using file metadata signatures and stable file timestamps instead of scan-time timestamps
+- Central runtime capability registry; HTTP and MCP discovery now advertise only implemented status/capabilities commands
+- Executable acceptance runner via npm run verify:2.0 and the desktop/security test program in docs/mmstopwatch-2.0-test-program.md
+
+### Security
+- Centralized vault/profile/relative Markdown path validation rejects traversal, encoded separators, UNC/device paths and control characters
+- Removed the unused legacy Tauri greet command and granted only the atomic writer's rename/remove filesystem permissions
+- Updated vulnerable npm lockfile packages; npm audit --audit-level=high is clean
+
+## [1.7.0-rc.3] - 2026-07-30
+### Fixed
+- Windows MSI prerelease packaging now uses a generated numeric-only Tauri bundle version (for example 1.7.0-3) while preserving the public semver 1.7.0-rc.3
+- Release metadata accepts a platform bundle version and records both public and installer versions
+
+### Verification boundary
+- RC2 verify matrix passed Windows/Ubuntu/macOS tests and Linux/macOS packaging, then failed only Windows MSI validation because rc.2 is not numeric-only
+- RC3 must receive a fresh full workflow and artifact readback before the prerelease can be considered publishable
+
+---
+
 ## [1.7.0-rc.2] - 2026-07-30
 ### Fixed
 - Windows MCP stdio process smoke now launches the npm command through `ComSpec` instead of spawning `npm.cmd` directly, avoiding Node `spawn EINVAL` on GitHub Actions

@@ -18,6 +18,8 @@ import TimerGrid from './components/TimerGrid'
 import CloseGuardDialog from './components/CloseGuardDialog'
 import { BackgroundBeams } from './components/ui/BackgroundBeams'
 import PreviewModal from './components/PreviewModal'
+import RecoveryOverlay from './components/RecoveryOverlay'
+import { useRecoveryLifecycle } from './hooks/useRecoveryLifecycle'
 import { useTranslation } from './i18n/useTranslation'
 import { formatDuration } from './utils/time'
 import type { Session, LayoutMode } from './types/session'
@@ -38,8 +40,9 @@ function App() {
   const mdConfig = useSessionStore(selectMdConfig)
   const timers = useTimersStore(useShallow(selectTimers))
   const runningTimers = timers.filter(t => t.status === 'RUNNING')
-  const { refreshSessions, openNote, deletedSessions, undoDelete, isPinned, togglePinNote } = useSessionStore()
+  const { refreshSessions, openNote, deletedSessions, undoDelete, isPinned, togglePinNote, notesLoading, notesError } = useSessionStore()
   const { t } = useTranslation()
+  useRecoveryLifecycle()
   const searchValue = useSessionStore(s => s.filters.search)
 
   useEffect(() => {
@@ -99,7 +102,10 @@ function App() {
     useSessionStore.getState().setMDConfig({ timerLayout: { ...(mdConfig.timerLayout || { order: [] }), mode } })
   }, [mdConfig.timerLayout])
 
-  const needsOnboarding = mdConfig.onboardingComplete !== true && !showSettings
+  // A stale legacy config can claim onboarding is complete while no vault
+  // path was persisted. Do not present an empty workspace in that state; let
+  // the user select the vault again so the runtime filesystem scope can load it.
+  const needsOnboarding = (mdConfig.onboardingComplete !== true || !mdConfig.notesFolder) && !showSettings
 
   useEffect(() => {
     const timeEstimates = mdConfig.timeEstimates || {}
@@ -141,7 +147,7 @@ function App() {
   }
 
   if (needsOnboarding) {
-    return <OnboardingWizard onComplete={() => { window.location.reload() }} />
+    return <OnboardingWizard onComplete={() => undefined} />
   }
 
   const sidebarContent = (
@@ -149,6 +155,18 @@ function App() {
       <div className="mb-4 p-3 bg-zinc-900 rounded-xl text-xs text-zinc-400 shadow-inner">
         {t('total')}: {filteredSessions.reduce((sum, s) => sum + s.duration_ms, 0) / 1000 / 60 | 0} {t('min')} • {filteredSessions.length} {t('sessions')}
       </div>
+      {notesLoading && (
+        <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2 text-xs text-zinc-400" role="status">
+          {t('notesLoading')}
+        </div>
+      )}
+      {notesError && (
+        <div className="mb-3 rounded-xl border border-red-900/70 bg-red-950/30 px-3 py-3 text-xs text-red-200" role="alert">
+          <div className="font-medium">{t('notesLoadFailed')}</div>
+          <div className="mt-1 break-words text-red-300/80">{notesError}</div>
+          <button onClick={() => { void refreshSessions() }} className="mt-2 rounded-lg bg-red-900/60 px-2.5 py-1 text-red-100 hover:bg-red-900">{t('retry')}</button>
+        </div>
+      )}
       {deletedSessions.length > 0 && (
         <div className="mb-2 flex items-center justify-between bg-zinc-900 rounded-xl px-3 py-2 text-xs">
           <span className="text-zinc-500">{deletedSessions.length} {t('deleted')}</span>
@@ -325,6 +343,7 @@ function App() {
       )}
 
       <UndoToast />
+      <RecoveryOverlay />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showStats && <StatsModal onClose={() => setShowStats(false)} />}
       {editSession && <EditModal session={editSession} onClose={() => setEditSession(null)} />}

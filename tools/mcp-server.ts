@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { createInterface, type ReadLine } from 'node:readline'
 import type { Writable } from 'node:stream'
+import { IMPLEMENTED_COMMANDS } from '../src/application/capabilities'
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18' as const
 const packageJson = createRequire(import.meta.url)('../package.json') as { version: string }
@@ -92,7 +93,8 @@ const ALL_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 
 /** Planned schemas are kept for future API-backed command groups; only implemented routes are advertised. */
 export const MCP_PLANNED_TOOL_DEFINITIONS: McpToolDefinition[] = ALL_MCP_TOOL_DEFINITIONS
-const IMPLEMENTED_TOOL_NAMES = new Set(['mmstopwatch_status', 'mmstopwatch_capabilities'])
+const TOOL_NAME_BY_COMMAND: Record<string, string> = { status: 'mmstopwatch_status', capabilities: 'mmstopwatch_capabilities' }
+const IMPLEMENTED_TOOL_NAMES = new Set(IMPLEMENTED_COMMANDS.map(command => TOOL_NAME_BY_COMMAND[command]).filter((name): name is string => Boolean(name)))
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = ALL_MCP_TOOL_DEFINITIONS.filter(definition => IMPLEMENTED_TOOL_NAMES.has(definition.name))
 
 interface FetchOptions {
@@ -216,6 +218,11 @@ function buildRequestUrl(baseUrl: string, path: string, args: Record<string, unk
   return url.toString()
 }
 
+function sanitizeRequestId(id: JsonRpcId): string {
+  const cleaned = String(id).replace(/[\x00-\x1f\x7f]/g, '')
+  return `mcp-${cleaned}`.substring(0, 100)
+}
+
 function redactError(error: unknown): string {
   const raw = error instanceof Error ? error.message : 'Control plane request failed'
   return raw
@@ -252,7 +259,7 @@ async function fetchWithRetry(url: string, init: RequestInit, options: FetchOpti
   throw lastError instanceof Error ? lastError : new Error('Control plane request failed')
 }
 
-async function callTool(name: string, args: Record<string, unknown>, options: FetchOptions): Promise<ReturnType<typeof textResult>> {
+async function callTool(name: string, args: Record<string, unknown>, options: FetchOptions, requestId?: JsonRpcId): Promise<ReturnType<typeof textResult>> {
   if (!MCP_TOOL_DEFINITIONS.some(toolDefinition => toolDefinition.name === name)) return toolError('Tool is not available')
   if (MUTATING_TOOL_NAMES.has(name) && args.confirmed !== true) return toolError('Confirmation required for this mutation')
   const route = TOOL_ROUTES[name]
@@ -260,14 +267,18 @@ async function callTool(name: string, args: Record<string, unknown>, options: Fe
   if (!options.token?.trim()) return toolError('Control plane token is required')
 
   const url = buildRequestUrl(options.apiBaseUrl || DEFAULT_API_BASE_URL, route.path, args)
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.token}`,
+    Accept: 'application/json',
+    ...(route.method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+  }
+  if (requestId !== undefined && !MUTATING_TOOL_NAMES.has(name)) {
+    headers['X-Request-Id'] = sanitizeRequestId(requestId)
+  }
   const init: RequestInit = {
     method: route.method,
-    headers: {
-      Authorization: `Bearer ${options.token}`,
-      Accept: 'application/json',
-      ...(route.method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-    },
-  }
+    headers,
+  };
   if (route.method === 'POST') {
     init.body = JSON.stringify({
       from: typeof args.from === 'string' ? args.from : undefined,
@@ -347,7 +358,7 @@ export function createMcpRequestHandler(options: McpRequestHandlerOptions = {}):
       const args = params.arguments === undefined ? {} : params.arguments
       const validationError = validateToolArguments(name, args)
       if (validationError) return errorResponse(id, -32602, validationError)
-      return response(id, await callTool(name, args as Record<string, unknown>, requestOptions))
+      return response(id, await callTool(name, args as Record<string, unknown>, requestOptions, id))
     }
     return errorResponse(id, -32601, 'Method not found')
   }) as McpRequestHandler

@@ -68,12 +68,15 @@ jobs:
           - platform: linux
             os: ubuntu-latest
             bundles: deb,appimage
+            tauri_config: ''
           - platform: macos
             os: macos-latest
             bundles: dmg,app
+            tauri_config: ''
           - platform: windows
             os: windows-latest
             bundles: nsis,msi
+            tauri_config: '--config src-tauri/target/tauri.windows.rc.json'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,10 +106,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare Windows MSI-compatible version overlay
+        id: prepare_windows_bundle
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $bundleVersion = node --input-type=module -e 'import fs from "node:fs"; const { version } = JSON.parse(fs.readFileSync("package.json", "utf8")); const match = version.match(/^(\d+\.\d+\.\d+)-.*?(\d+)$/); if (!match) throw new Error(`Cannot derive numeric Windows bundle version from ${version}`); process.stdout.write(match[1] + "-" + match[2]);'
+          New-Item -ItemType Directory -Force -Path src-tauri/target | Out-Null
+          @{ version = $bundleVersion } | ConvertTo-Json -Compress | Set-Content -Path src-tauri/target/tauri.windows.rc.json -Encoding utf8
+          "bundle_version=$bundleVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Build installers
-        run: npx tauri build --bundles ${{ matrix.bundles }} --ci
+        run: npx tauri build --bundles ${{ matrix.bundles }} --ci ${{ matrix.tauri_config }}
 
       - name: Generate release metadata
+        env:
+          MMSTOPWATCH_BUNDLE_VERSION: ${{ steps.prepare_windows_bundle.outputs.bundle_version }}
         run: node scripts/generate-release-metadata.mjs
 
       - name: Upload bundle
@@ -115,6 +130,11 @@ jobs:
           name: mmStopWatch-${{ matrix.platform }}
           path: src-tauri/target/release/bundle
           if-no-files-found: error
+
+      - name: Cleanup Windows version overlay
+        if: always() && matrix.platform == 'windows'
+        shell: pwsh
+        run: Remove-Item -Force src-tauri/target/tauri.windows.rc.json -ErrorAction SilentlyContinue
 
   release:
     name: Publish GitHub release

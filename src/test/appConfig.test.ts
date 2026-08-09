@@ -6,6 +6,9 @@ const fs = vi.hoisted(() => ({
   mkdir: vi.fn(),
   readTextFile: vi.fn(),
   writeTextFile: vi.fn(),
+  rename: vi.fn(),
+  stat: vi.fn(),
+  remove: vi.fn(),
   readDir: vi.fn(),
 }))
 
@@ -50,8 +53,12 @@ describe('multi-profile config persistence', () => {
 
     expect(fs.mkdir).toHaveBeenCalledWith('D:/vault-a/.mmST-tester', { recursive: true })
     expect(fs.writeTextFile).toHaveBeenCalledWith(
-      'D:/vault-a/.mmST-tester/config.json',
+      expect.stringContaining('D:/vault-a/.mmST-tester/config.json.mmst-tmp-'),
       JSON.stringify(config, null, 2),
+    )
+    expect(fs.rename).toHaveBeenCalledWith(
+      expect.stringContaining('D:/vault-a/.mmST-tester/config.json.mmst-tmp-'),
+      'D:/vault-a/.mmST-tester/config.json',
     )
   })
 

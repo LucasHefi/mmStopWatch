@@ -4,6 +4,7 @@ import { join, relative } from 'node:path'
 
 const bundleRoot = join(process.cwd(), 'src-tauri', 'target', 'release', 'bundle')
 const packageJson = JSON.parse(await readFile('package.json', 'utf8'))
+const bundleVersion = process.env.MMSTOPWATCH_BUNDLE_VERSION || packageJson.version
 const bundleFiles = []
 const artifactExtensions = new Set(['.AppImage', '.deb', '.dmg', '.exe', '.msi', '.rpm'])
 
@@ -15,7 +16,7 @@ async function collectFiles(directory) {
     } else if (
       entry.isFile() &&
       !['SHA256SUMS.txt', 'BUILD-METADATA.json'].includes(entry.name) &&
-      entry.name.includes(packageJson.version) &&
+      entry.name.includes(bundleVersion) &&
       artifactExtensions.has(entry.name.slice(entry.name.lastIndexOf('.')))
     ) {
       bundleFiles.push(path)
@@ -38,6 +39,7 @@ await writeFile(
   `${JSON.stringify({
     name: packageJson.name,
     version: packageJson.version,
+    bundleVersion,
     commit: process.env.GITHUB_SHA || null,
     ref: process.env.GITHUB_REF_NAME || null,
     runner: process.env.RUNNER_OS || process.platform,
@@ -45,4 +47,4 @@ await writeFile(
   }, null, 2)}\n`,
 )
 
-console.log(`Generated metadata for ${bundleFiles.length} bundle files`)
+console.log(`Generated metadata for ${bundleFiles.length} bundle files (bundle version ${bundleVersion})`)

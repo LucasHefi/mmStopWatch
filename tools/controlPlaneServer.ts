@@ -2,8 +2,9 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { URL } from 'node:url'
-import { ApplicationDispatcher, commandHandler } from '../src/application/dispatcher'
+import { ApplicationDispatcher, commandHandler, type CommandRegistry } from '../src/application/dispatcher'
 import {
+  COMMAND_REGISTRY,
   PROTOCOL_VERSION,
   type CapabilitiesDto,
   type CommandName,
@@ -17,7 +18,6 @@ const LOOPBACK_HOST = '127.0.0.1'
 const packageJson = createRequire(`${process.cwd()}/tools/controlPlaneServer.ts`)('../package.json') as { version: string }
 const DEFAULT_MAX_BODY_BYTES = 64 * 1024
 const DEFAULT_REQUEST_TIMEOUT_MS = 5_000
-const READ_ONLY_COMMANDS: CommandName[] = ['status', 'capabilities', 'list_notes', 'get_stats', 'preview_report']
 
 export interface ControlPlaneServerOptions {
   port?: number
@@ -25,6 +25,7 @@ export interface ControlPlaneServerOptions {
   allowedOrigins?: string[]
   maxBodyBytes?: number
   requestTimeoutMs?: number
+  handlers?: CommandRegistry
 }
 
 export interface ControlPlaneServerHandle {
@@ -129,12 +130,19 @@ function routeRequest(url: URL, method: string, body: Record<string, unknown>): 
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {
       throw new RequestFailure(400, 'limit must be an integer between 1 and 100')
     }
+    const rawTags = url.searchParams.get('tags')
+    const tags = rawTags ? rawTags.split(',').map(t => t.trim()).filter(Boolean) : undefined
     return {
       protocolVersion: PROTOCOL_VERSION,
       requestId: requestIdValue,
       actor: 'http',
       command: 'list_notes',
-      input: { limit, cursor: url.searchParams.get('cursor') || undefined },
+      input: {
+        limit,
+        cursor: url.searchParams.get('cursor') || undefined,
+        query: url.searchParams.get('query') || undefined,
+        tags,
+      },
     }
   }
   if (method === 'GET' && url.pathname === '/api/v1/stats') {
@@ -162,8 +170,23 @@ function routeRequest(url: URL, method: string, body: Record<string, unknown>): 
   return undefined
 }
 
-function buildDispatcher(): ApplicationDispatcher {
+function buildDispatcher(injectedHandlers: CommandRegistry = {}): ApplicationDispatcher {
+  const readOnlyCommands: CommandName[] = ['status', 'capabilities']
+  const mergedHandlers: CommandRegistry = {}
+
+  for (const command of Object.keys(injectedHandlers) as CommandName[]) {
+    if (command === 'status' || command === 'capabilities') continue
+    const handler = injectedHandlers[command]
+    if (!handler) continue
+    const def = COMMAND_REGISTRY[command]
+    if (def && !def.mutating) {
+      (mergedHandlers as Record<string, unknown>)[command] = handler
+      readOnlyCommands.push(command)
+    }
+  }
+
   return new ApplicationDispatcher({
+    ...mergedHandlers,
     status: commandHandler((): StatusDto => ({
       appVersion: packageJson.version,
       protocolVersion: PROTOCOL_VERSION,
@@ -172,7 +195,7 @@ function buildDispatcher(): ApplicationDispatcher {
     capabilities: commandHandler((): CapabilitiesDto => ({
       protocolVersion: PROTOCOL_VERSION,
       readOnly: true,
-      commands: READ_ONLY_COMMANDS,
+      commands: readOnlyCommands,
     })),
   })
 }
@@ -190,6 +213,7 @@ export async function startHttpServer(options: ControlPlaneServerOptions = {}): 
   const token = options.token || randomBytes(32).toString('hex')
   const allowedOrigins = new Set(options.allowedOrigins || [])
   const maxBodyBytes = options.maxBodyBytes || DEFAULT_MAX_BODY_BYTES
+  const injectedHandlers = options.handlers || {}
   const server: Server = createServer(async (request, response) => {
     const origin = headerValue(request.headers.origin)
     try {
@@ -211,7 +235,7 @@ export async function startHttpServer(options: ControlPlaneServerOptions = {}): 
       }
 
       const requestEnvelope = { ...routed, requestId: requestId(request) } as CommandRequest
-      const result = await buildDispatcher().dispatch(requestEnvelope)
+      const result = await buildDispatcher(injectedHandlers).dispatch(requestEnvelope)
       sendJson(response, resultStatus(result), result, origin)
     } catch (error) {
       if (error instanceof RequestFailure) {

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest'
 import { spawn } from 'node:child_process'
 import { PassThrough } from 'node:stream'
@@ -12,7 +14,7 @@ import {
 } from '../../tools/mcp-server'
 import { startHttpServer } from '../../tools/controlPlaneServer'
 
-function request(method: string, params: Record<string, unknown> = {}, id = 1): McpJsonRpcRequest {
+function request(method: string, params: Record<string, unknown> = {}, id: string | number = 1): McpJsonRpcRequest {
   return { jsonrpc: '2.0', id, method, params }
 }
 
@@ -43,7 +45,7 @@ describe('mmStopWatch MCP stdio contract', () => {
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'mmstopwatch', version: '1.7.0-rc.2' },
+        serverInfo: { name: 'mmstopwatch', version: '1.7.0-rc.3' },
       },
     })
   })
@@ -156,6 +158,42 @@ describe('mmStopWatch MCP stdio contract', () => {
     expect(calls[0].headers.get('authorization')).toBe('Bearer test-token')
   })
 
+  it('propagates a safe deterministic X-Request-Id header derived from the JSON-RPC request id for read-only tools/call', async () => {
+    const calls: Array<{ url: string; method: string; headers: Headers }> = []
+    const handler = createMcpRequestHandler({
+      fetchImpl: async (input, init) => {
+        calls.push({ url: String(input), method: init?.method || 'GET', headers: new Headers(init?.headers) })
+        return new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json' } })
+      },
+      token: 'test-token',
+      apiBaseUrl: 'http://127.0.0.1:1234',
+    })
+
+    await initialize(handler)
+
+    await handler(request('tools/call', { name: 'mmstopwatch_status', arguments: {} }, 42))
+    expect(calls).toHaveLength(1)
+    expect(calls[0].headers.get('x-request-id')).toBe('mcp-42')
+
+    await handler(request('tools/call', { name: 'mmstopwatch_capabilities', arguments: {} }, 'my-session'))
+    expect(calls).toHaveLength(2)
+    expect(calls[0].headers.get('x-request-id')).toBe('mcp-42')
+    expect(calls[1].headers.get('x-request-id')).toBe('mcp-my-session')
+
+    await handler(request('tools/call', { name: 'mmstopwatch_status', arguments: {} }, '\x00ctrl\x1f\x7f'))
+    expect(calls).toHaveLength(3)
+    expect(calls[2].headers.get('x-request-id')).toBe('mcp-ctrl')
+
+    await handler(request('tools/call', { name: 'mmstopwatch_status', arguments: {} }, 'a'.repeat(120)))
+    expect(calls).toHaveLength(4)
+    const longId = calls[3].headers.get('x-request-id')
+    expect(longId).toMatch(/^mcp-/)
+    expect(longId!.length).toBeLessThanOrEqual(100)
+
+    await handler(request('tools/call', { name: 'mmstopwatch_timer_stop', arguments: { confirmed: true } }, 99))
+    expect(calls).toHaveLength(4)
+  })
+
   it('fails closed for unsupported tools and redacts transport details', async () => {
     const handler = createMcpRequestHandler({
       fetchImpl: async () => { throw new Error('connect failed token=redaction-fixture-token') },
@@ -204,7 +242,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         result: { isError: false, content: [{ type: 'text' }] },
       })
       const text = (result as { result: { content: [{ text: string }] } }).result.content[0].text
-      expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.2', ready: true } })
+      expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.3', ready: true } })
     } finally {
       await server.close()
     }

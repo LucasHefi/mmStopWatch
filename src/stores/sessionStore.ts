@@ -2,17 +2,20 @@ import { create } from 'zustand'
 import type { Session, MDConfig, FilterOptions, DeletedSession, RecentlyDeleted } from '../types/session'
 import {
   selectNotesFolder,
-  loadNotesFromFolder,
   updateFrontmatter,
   parseFrontmatter,
   parseTimeToMs,
 } from '../services/mdStorage'
-import { exists, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
+import { exists, readTextFile } from '@tauri-apps/plugin-fs'
 import { activityService } from '../services/activityService'
 import { loadConfig, saveConfig as appSaveConfig, loadDeleted, saveDeleted as appSaveDeleted, defaultConfig, saveCurrentProfile, switchProfile as applyProfileConfig, createProfileFromConfig } from '../services/appConfig'
 import { formatMsToTime } from '../utils/time'
 import { authorizeNotesFolder } from '../services/tauriScope'
 import { useTimersStore } from './timersStore'
+import { readFileSnapshot, snapshotFromContent, writeTextFileAtomically, FileConflictError } from '../services/safeFileWriter'
+import { beginOperation, completeOperation, failOperation } from '../services/operationJournal'
+import { resolveVaultMarkdownPath } from '../services/pathSecurity'
+import { noteIndex } from '../services/noteIndex'
 
 const LEGACY_CONFIG_KEY = 'mmstopwatch_md_config'
 const pendingActivityDurations = new Map<string, number>()
@@ -22,6 +25,8 @@ interface MDState {
   sessions: Session[]
   mdConfig: MDConfig
   filteredSessions: Session[]
+  notesLoading: boolean
+  notesError: string | null
   filters: FilterOptions
   deletedSessions: DeletedSession[]
   recentlyDeleted: RecentlyDeleted | null
@@ -35,18 +40,22 @@ interface MDState {
   setFilters: (filters: Partial<FilterOptions>) => void
   addTagToSession: (session: Session, tag: string) => Promise<void>
   discardTimer: (timerId: string, timerState: { elapsed: number; pausedOffset: number }) => void
-  setMDConfig: (config: Partial<MDConfig>) => void
+  setMDConfig: (config: Partial<MDConfig>) => Promise<void>
   togglePinNote: (notePath: string) => void
   isPinned: (notePath: string) => boolean
   setTimeEstimate: (notePath: string, minutes: number | null) => Promise<void>
-  setLanguage: (lang: string) => void
+  setLanguage: (lang: string) => Promise<void>
   activeNote: Session | null
   openNote: (session: Session, restoreState?: { elapsed: number; pausedOffset: number }) => void
   clearActiveNote: () => void
-  initializeFromConfig: () => void
+  initializeFromConfig: () => Promise<void>
   switchProfile: (profileId: string) => Promise<void>
   saveCurrentProfileAs: (name: string) => Promise<void>
   deleteProfile: (profileId: string) => Promise<void>
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function applyFilters(sessions: Session[], filters: FilterOptions): Session[] {
@@ -67,6 +76,8 @@ export const useSessionStore = create<MDState>()(
   sessions: [],
   mdConfig: defaultConfig(),
   filteredSessions: [],
+  notesLoading: false,
+  notesError: null,
   filters: { tags: [], search: '' },
   activeNote: null,
   deletedSessions: [],
@@ -77,10 +88,9 @@ export const useSessionStore = create<MDState>()(
     if (!result) return
     const folder = result.folder
     const vaultName = result.vaultName || folder.split(/[/\\]/).pop() || ''
-    await authorizeNotesFolder(folder)
+    await authorizeNotesFolder(folder, get().mdConfig.nick || null)
     let config: MDConfig = { ...get().mdConfig, notesFolder: folder, obsidianVault: vaultName }
 
-    // Auto-create a profile if none exists
     if (!config.activeProfileId) {
       const profile = createProfileFromConfig(config, vaultName)
       config.activeProfileId = profile.id
@@ -90,9 +100,7 @@ export const useSessionStore = create<MDState>()(
     }
 
     await appSaveConfig(config, config.notesFolder, config.nick || null)
-    try {
-      localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(config))
-    } catch {}
+    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(config)) } catch {}
     set({ notesFolder: folder, mdConfig: config })
     await activityService.loadHistory(folder)
     await get().refreshSessions()
@@ -100,58 +108,55 @@ export const useSessionStore = create<MDState>()(
 
   refreshSessions: async () => {
     const { notesFolder, mdConfig, activeNote } = get()
-    if (!notesFolder) return
-    let sessions = await loadNotesFromFolder(notesFolder, mdConfig.frontmatterKey, mdConfig.timeEstimateKey, mdConfig.statsFieldKeys)
-    const pinned = mdConfig.pinnedNotes || []
-    sessions.sort((a, b) => {
-      const ap = pinned.includes(a.notePath || '')
-      const bp = pinned.includes(b.notePath || '')
-      if (ap && !bp) return -1
-      if (!ap && bp) return 1
-      return a.name.localeCompare(b.name)
-    })
-    const filtered = applyFilters(sessions, get().filters)
-    const stillExists = activeNote && sessions.some(s => s.notePath === activeNote.notePath)
-    const validPinned = pinned.filter(p => sessions.some(s => s.notePath === p))
-    if (validPinned.length !== pinned.length) {
-      const cfg = { ...mdConfig, pinnedNotes: validPinned }
-      set({ mdConfig: cfg })
+    if (!notesFolder) {
+      set({ sessions: [], filteredSessions: [], notesLoading: false, notesError: null, activeNote: null })
+      return
     }
-    set({ sessions, filteredSessions: filtered, activeNote: stillExists ? activeNote : null })
+    set({ notesLoading: true, notesError: null })
+    try {
+      const sessions = await noteIndex.load({ folder: notesFolder, frontmatterKey: mdConfig.frontmatterKey, timeEstimateKey: mdConfig.timeEstimateKey, statsFieldKeys: mdConfig.statsFieldKeys })
+      const pinned = mdConfig.pinnedNotes || []
+      sessions.sort((a, b) => {
+        const ap = pinned.includes(a.notePath || '')
+        const bp = pinned.includes(b.notePath || '')
+        if (ap && !bp) return -1
+        if (!ap && bp) return 1
+        return a.name.localeCompare(b.name)
+      })
+      const filtered = applyFilters(sessions, get().filters)
+      const stillExists = activeNote && sessions.some(s => s.notePath === activeNote.notePath)
+      const validPinned = pinned.filter(p => sessions.some(s => s.notePath === p))
+      if (validPinned.length !== pinned.length) set({ mdConfig: { ...mdConfig, pinnedNotes: validPinned } })
+      set({ sessions, filteredSessions: filtered, notesLoading: false, notesError: null, activeNote: stillExists ? activeNote : null })
+    } catch (error) {
+      console.error('Failed to load notes:', error)
+      set({ notesLoading: false, notesError: errorMessage(error) })
+    }
   },
 
   saveSessionToNote: async (durationMs: number, notePath?: string, reset = false, operationId?: string) => {
     const { mdConfig, notesFolder } = get()
     if (!notesFolder) return
-
     let targetPath = notePath
     if (!targetPath) {
       const now = new Date()
-      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-      targetPath = `${notesFolder}/${dateStr}.md`
+      targetPath = notesFolder + '/' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '.md'
     }
+    if (notePath) targetPath = resolveVaultMarkdownPath(notesFolder, notePath)
+    const operation = beginOperation('note.save', targetPath, operationId)
+    if (operation.status === 'committed') return
 
     let content: string
-    try {
-      content = await readTextFile(targetPath)
-    } catch (error) {
+    try { content = await readTextFile(targetPath) } catch (error) {
       if (await exists(targetPath)) throw error
       content = ''
     }
     const { data } = parseFrontmatter(content)
     const existing = data[mdConfig.frontmatterKey]
     const existingMs = existing ? parseTimeToMs(String(existing)).ms : 0
-
     let totalMs = durationMs
     let activityMs = durationMs
-
-    if (existing && !reset) {
-      totalMs = existingMs + durationMs
-      activityMs = durationMs
-    } else if (reset) {
-      totalMs = durationMs
-      activityMs = Math.max(0, durationMs - existingMs)
-    }
+    if (existing && !reset) { totalMs = existingMs + durationMs } else if (reset) { activityMs = Math.max(0, durationMs - existingMs) }
 
     if (operationId) {
       const pendingDuration = pendingActivityDurations.get(operationId)
@@ -159,32 +164,36 @@ export const useSessionStore = create<MDState>()(
       else activityMs = pendingDuration
     }
 
-    const timeStr = formatMsToTime(totalMs, mdConfig.timeFormat)
-    const updated = updateFrontmatter(content || '---\n---\n', mdConfig.frontmatterKey, timeStr)
-    await writeTextFile(targetPath, updated)
-
-    // Log activity
-    const noteName = targetPath.split('/').pop()?.replace('.md', '') || 'unknown'
-    await activityService.logActivity(activityMs, targetPath, noteName, notesFolder, mdConfig.nick || null, operationId)
+    const updated = updateFrontmatter(content || '---\n---\n', mdConfig.frontmatterKey, formatMsToTime(totalMs, mdConfig.timeFormat))
+    try {
+      await writeTextFileAtomically(targetPath, updated, content ? snapshotFromContent(targetPath, content) : null)
+    } catch (error) {
+      failOperation(operation.id, error, error instanceof FileConflictError ? 'conflict' : 'failed')
+      throw error
+    }
+    const noteName = targetPath.split(/[/\\]/).pop()?.replace('.md', '') || 'unknown'
+    try {
+      await activityService.logActivity(activityMs, targetPath, noteName, notesFolder, mdConfig.nick || null, operationId)
+      completeOperation(operation.id)
+    } catch (error) {
+      failOperation(operation.id, error)
+      throw error
+    }
     if (operationId) pendingActivityDurations.delete(operationId)
-    // Patch locally instead of full refresh (avoids O(n) folder scan delay)
     set(state => ({
-      sessions: state.sessions.map(s =>
-        s.notePath === targetPath ? { ...s, duration_ms: totalMs } : s
-      ),
-      filteredSessions: state.filteredSessions.map(s =>
-        s.notePath === targetPath ? { ...s, duration_ms: totalMs } : s
-      ),
+      sessions: state.sessions.map(s => s.notePath === targetPath ? { ...s, duration_ms: totalMs } : s),
+      filteredSessions: state.filteredSessions.map(s => s.notePath === targetPath ? { ...s, duration_ms: totalMs } : s),
     }))
   },
 
   updateSession: async (session: Session) => {
     if (!session.notePath) return
     const { mdConfig } = get()
-    const content = await readTextFile(session.notePath)
-    const timeStr = formatMsToTime(session.duration_ms, mdConfig.timeFormat)
-    const updated = updateFrontmatter(content, session.frontmatterKey || mdConfig.frontmatterKey, timeStr)
-    await writeTextFile(session.notePath, updated)
+    const safePath = resolveVaultMarkdownPath(get().notesFolder || '', session.notePath)
+    const content = await readTextFile(safePath)
+    const before = await readFileSnapshot(safePath)
+    const updated = updateFrontmatter(content, session.frontmatterKey || mdConfig.frontmatterKey, formatMsToTime(session.duration_ms, mdConfig.timeFormat))
+    await writeTextFileAtomically(safePath, updated, before)
     set(state => ({
       sessions: state.sessions.map(s => s.notePath === session.notePath ? { ...s, duration_ms: session.duration_ms } : s),
       filteredSessions: state.filteredSessions.map(s => s.notePath === session.notePath ? { ...s, duration_ms: session.duration_ms } : s),
@@ -193,14 +202,16 @@ export const useSessionStore = create<MDState>()(
 
   deleteSession: async (session: Session) => {
     if (!session.notePath) return
-    const content = await readTextFile(session.notePath)
+    const safePath = resolveVaultMarkdownPath(get().notesFolder || '', session.notePath)
+    const content = await readTextFile(safePath)
+    const before = await readFileSnapshot(safePath)
     const { data } = parseFrontmatter(content)
     delete data[session.frontmatterKey || 'stopwatch_time']
     let yaml = '---\n'
-    Object.entries(data).forEach(([k,v]) => yaml += `${k}: ${Array.isArray(v)?`[${v.join(',')}]`:v}\n`)
+    Object.entries(data).forEach(([key, value]) => { yaml += key + ': ' + (Array.isArray(value) ? '[' + value.join(',') + ']' : value) + '\n' })
     yaml += '---\n'
     const rest = content.split('---\n').slice(2).join('---\n')
-    await writeTextFile(session.notePath, yaml + rest)
+    await writeTextFileAtomically(safePath, yaml + rest, before)
     const now = Date.now()
     const deleted: DeletedSession = { session: { ...session }, deletedAt: now }
     set(state => ({
@@ -219,239 +230,166 @@ export const useSessionStore = create<MDState>()(
     if (!recentlyDeleted) return
     const session = { ...recentlyDeleted.session }
     const timerState = recentlyDeleted.timerState
-
-    // Check if session was already restored by another operation (e.g., refresh)
-    const exists = sessions.some((s) => s.notePath === session.notePath)
-    if (!exists) {
-      set({
-        sessions: [...sessions, session],
-        filteredSessions: [...filteredSessions, session],
-      })
+    if (!sessions.some(item => item.notePath === session.notePath)) {
+      set({ sessions: [...sessions, session], filteredSessions: [...filteredSessions, session] })
     }
-
     set({ recentlyDeleted: null, activeNote: session })
-
-    // Restore timer state - pass timerState to openNote which forwards to addTimer
-    if (session.notePath && timerState) {
-      get().openNote(session, timerState)
-    }
+    if (session.notePath && timerState) get().openNote(session, timerState)
   },
 
-  clearRecentlyDeleted: () => {
-    set({ recentlyDeleted: null })
-  },
+  clearRecentlyDeleted: () => set({ recentlyDeleted: null }),
 
-  setFilters: (newFilters) => {
+  setFilters: newFilters => {
     const filters = { ...get().filters, ...newFilters }
-    const filtered = applyFilters(get().sessions, filters)
-    set({ filters, filteredSessions: filtered })
+    set({ filters, filteredSessions: applyFilters(get().sessions, filters) })
   },
 
-  setMDConfig: async (partial) => {
-    let cfg = { ...get().mdConfig, ...partial }
-    // Auto-save current profile when key fields change
-    cfg = await saveCurrentProfile(cfg)
-    // Save to file storage (.mmST-{nick}/config.json)
+  setMDConfig: async partial => {
+    const previousConfig = get().mdConfig
+    let cfg = await saveCurrentProfile({ ...previousConfig, ...partial })
+    const previousFolder = get().notesFolder
+    const profileChanged = cfg.nick !== previousConfig.nick
+    if (cfg.notesFolder && (cfg.notesFolder !== previousFolder || profileChanged)) {
+      await authorizeNotesFolder(cfg.notesFolder, cfg.nick || null)
+    }
     await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
-    // Also keep localStorage in sync for initializeFromConfig bootstrapping
-    try {
-      localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg))
-    } catch {}
-    set({ mdConfig: cfg })
+    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch {}
+    set({ mdConfig: cfg, notesFolder: cfg.notesFolder })
     await get().refreshSessions()
   },
 
-  togglePinNote: async (notePath: string) => {
+  togglePinNote: async notePath => {
     const current = get().mdConfig.pinnedNotes || []
-    const updated = current.includes(notePath) ? current.filter(p => p !== notePath) : [...current, notePath]
-    let cfg: MDConfig = { ...get().mdConfig, pinnedNotes: updated }
-    cfg = await saveCurrentProfile(cfg)
-    set({ mdConfig: cfg })
-    // Persist to disk
+    const updated = current.includes(notePath) ? current.filter(path => path !== notePath) : [...current, notePath]
+    let cfg = await saveCurrentProfile({ ...get().mdConfig, pinnedNotes: updated })
     await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
-    const pinned = updated
-    const sorted = [...get().sessions].sort((a, b) => {
-      const ap = pinned.includes(a.notePath || '')
-      const bp = pinned.includes(b.notePath || '')
-      if (ap && !bp) return -1
-      if (!ap && bp) return 1
-      return a.name.localeCompare(b.name)
-    })
-    const filtered = applyFilters(sorted, get().filters)
-    set({ mdConfig: cfg, sessions: sorted, filteredSessions: filtered })
+    const sorted = [...get().sessions].sort((a, b) => (updated.includes(b.notePath || '') ? 1 : 0) - (updated.includes(a.notePath || '') ? 1 : 0) || a.name.localeCompare(b.name))
+    set({ mdConfig: cfg, sessions: sorted, filteredSessions: applyFilters(sorted, get().filters) })
   },
 
-  isPinned: (notePath: string) => {
-    return (get().mdConfig.pinnedNotes || []).includes(notePath)
-  },
+  isPinned: notePath => (get().mdConfig.pinnedNotes || []).includes(notePath),
 
-  setLanguage: (lang) => {
+  setLanguage: async lang => {
     const cfg = { ...get().mdConfig, language: lang }
+    await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
+    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch (error) { console.error('Failed to persist language fallback:', error) }
     set({ mdConfig: cfg })
   },
 
-  addTagToSession: async (session: Session, tag: string) => {
+  addTagToSession: async (session, tag) => {
     if (!session.notePath) return
-    const content = await readTextFile(session.notePath)
+    const safePath = resolveVaultMarkdownPath(get().notesFolder || '', session.notePath)
+    const content = await readTextFile(safePath)
+    const before = await readFileSnapshot(safePath)
     const { data } = parseFrontmatter(content)
     const existingTags = Array.isArray(data.tags) ? data.tags : (data.tags && typeof data.tags === 'string' ? [data.tags] : [])
     const merged = Array.from(new Set([...existingTags, tag]))
-    const updated = updateFrontmatter(content, 'tags', merged)
-    await writeTextFile(session.notePath, updated)
+    await writeTextFileAtomically(safePath, updateFrontmatter(content, 'tags', merged), before)
     set(state => ({
       sessions: state.sessions.map(s => s.notePath === session.notePath ? { ...s, tags: merged } : s),
       filteredSessions: state.filteredSessions.map(s => s.notePath === session.notePath ? { ...s, tags: merged } : s),
     }))
   },
 
-  discardTimer: (_timerId: string, timerState: { elapsed: number; pausedOffset: number }) => {
-    // Only allow undo if there was some time measured
-    if (timerState.elapsed > 1000) {
-      const { recentlyDeleted, activeNote } = get()
-      if (recentlyDeleted) return // Prevent multiple rapid discards
-      
-      const timestamp = Date.now()
-      const session = activeNote || { id: '', name: '', started_at: 0, ended_at: 0, duration_ms: 0, created_at: 0, notePath: '' }
-      set({
-        recentlyDeleted: {
-          session,
-          deletedAt: timestamp,
-          expiresAt: timestamp + 10000, // 10 seconds for timer discard
-          timerState: {
-            elapsed: timerState.elapsed,
-            pausedOffset: timerState.pausedOffset, // Restore as paused
-          },
-        },
-      })
-    }
-    // Note: Timer removal is handled by the component calling useTimersStore.getState().removeTimer()
+  discardTimer: (_timerId, timerState) => {
+    if (timerState.elapsed <= 1000) return
+    const { recentlyDeleted, activeNote } = get()
+    if (recentlyDeleted) return
+    const timestamp = Date.now()
+    set({ recentlyDeleted: {
+      session: activeNote || { id: '', name: '', started_at: 0, ended_at: 0, duration_ms: 0, created_at: 0, notePath: '' },
+      deletedAt: timestamp,
+      expiresAt: timestamp + 10000,
+      timerState: { elapsed: timerState.elapsed, pausedOffset: timerState.pausedOffset },
+    } })
   },
 
-  openNote: (session: Session, restoreState?: { elapsed: number; pausedOffset: number }) => {
+  openNote: (session, restoreState) => {
     set({ activeNote: session })
     const notePath = session.notePath
     let finalRestoreState = restoreState
     if (notePath && !restoreState) {
       const { recentlyDeleted } = get()
       const now = Date.now()
-      if (recentlyDeleted && recentlyDeleted.session.notePath === notePath && recentlyDeleted.expiresAt > now && recentlyDeleted.timerState) {
-        finalRestoreState = recentlyDeleted.timerState
-      }
+      if (recentlyDeleted?.session.notePath === notePath && recentlyDeleted.expiresAt > now && recentlyDeleted.timerState) finalRestoreState = recentlyDeleted.timerState
     }
     useTimersStore.getState().addTimer(session, finalRestoreState)
     if (notePath) {
       readTextFile(notePath).catch(() => '').then(content => {
-        if (content) {
-          const currentConfig = get().mdConfig
-          const { data } = parseFrontmatter(content)
-          const ek = currentConfig.timeEstimateKey || 'timeEstimate'
-          const te = data[ek] != null ? Number(data[ek]) : undefined
-
-          if (te !== undefined) {
-            const timeEstimates: Record<string, number> = { ...(currentConfig.timeEstimates || {}) }
-            timeEstimates[notePath] = te
-            const cfg = { ...currentConfig, timeEstimates }
-            set({ mdConfig: cfg })
-          }
-        }
+        if (!content) return
+        const currentConfig = get().mdConfig
+        const { data } = parseFrontmatter(content)
+        const key = currentConfig.timeEstimateKey || 'timeEstimate'
+        const estimate = data[key] != null ? Number(data[key]) : undefined
+        if (estimate !== undefined) set({ mdConfig: { ...currentConfig, timeEstimates: { ...(currentConfig.timeEstimates || {}), [notePath]: estimate } } })
       })
     }
   },
 
-  clearActiveNote: () => {
-    set({ activeNote: null })
-  },
+  clearActiveNote: () => set({ activeNote: null }),
 
-  setTimeEstimate: async (notePath: string, minutes: number | null) => {
+  setTimeEstimate: async (notePath, minutes) => {
     if (!notePath) return
     const { mdConfig } = get()
+    const safePath = resolveVaultMarkdownPath(get().notesFolder || '', notePath)
     const timeEstimates = { ...mdConfig.timeEstimates }
-    if (minutes === null || minutes <= 0) {
-      delete timeEstimates[notePath]
-    } else {
-      timeEstimates[notePath] = minutes
-    }
-    const cfg = { ...mdConfig, timeEstimates }
-    set({ mdConfig: cfg })
-    // Update the markdown file frontmatter
+    if (minutes === null || minutes <= 0) delete timeEstimates[notePath]
+    else timeEstimates[notePath] = minutes
+    set({ mdConfig: { ...mdConfig, timeEstimates } })
     try {
-      const content = await readTextFile(notePath).catch(() => '')
+      const content = await readTextFile(safePath).catch(() => '')
       if (!content) return
-      const ek = mdConfig.timeEstimateKey || 'timeEstimate'
+      const before = await readFileSnapshot(safePath)
+      const key = mdConfig.timeEstimateKey || 'timeEstimate'
       if (minutes === null || minutes <= 0) {
-        // Remove timeEstimate from frontmatter
-        const lines = content.split('\n')
-        const newLines = lines.filter(l => !l.trim().startsWith(ek + ':'))
-        const newContent = newLines.join('\n')
-        await writeTextFile(notePath, newContent)
+        const newContent = content.split('\n').filter(line => !line.trim().startsWith(key + ':')).join('\n')
+        await writeTextFileAtomically(safePath, newContent, before)
       } else {
-        const updated = updateFrontmatter(content, ek, minutes)
-        await writeTextFile(notePath, updated)
+        await writeTextFileAtomically(safePath, updateFrontmatter(content, key, minutes), before)
       }
-    } catch (e) {
-      console.error('Failed to save timeEstimate:', e)
+    } catch (error) {
+      console.error('Failed to save timeEstimate:', error)
     }
   },
 
-  switchProfile: async (profileId: string) => {
+  switchProfile: async profileId => {
     const { mdConfig } = get()
     const newConfig = await applyProfileConfig(mdConfig, profileId)
     if (newConfig === mdConfig) return
-
     await appSaveConfig(newConfig, newConfig.notesFolder, newConfig.nick || null)
-    try {
-      localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(newConfig))
-    } catch {}
-
+    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(newConfig)) } catch {}
     const folder = newConfig.notesFolder
-    if (folder) await authorizeNotesFolder(folder)
+    if (folder) await authorizeNotesFolder(folder, newConfig.nick || null)
     set({ notesFolder: folder, mdConfig: newConfig, activeNote: null, recentlyDeleted: null })
-
-    // Clear all active timers when switching vaults
     useTimersStore.getState().resetAll()
-
     if (folder) {
       await activityService.loadHistory(folder)
-      const deleted = await loadDeleted(folder, newConfig.nick || null)
-      set({ deletedSessions: deleted })
+      set({ deletedSessions: await loadDeleted(folder, newConfig.nick || null) })
       await get().refreshSessions()
     } else {
       set({ sessions: [], filteredSessions: [], deletedSessions: [] })
     }
   },
 
-  saveCurrentProfileAs: async (name: string) => {
+  saveCurrentProfileAs: async name => {
     const { mdConfig } = get()
     const profile = createProfileFromConfig(mdConfig, name)
-    const profiles = [...(mdConfig.profiles || []), profile]
-    const cfg = { ...mdConfig, profiles, activeProfileId: profile.id }
+    const cfg = { ...mdConfig, profiles: [...(mdConfig.profiles || []), profile], activeProfileId: profile.id }
     await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
-    try {
-      localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg))
-    } catch {}
+    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch {}
     set({ mdConfig: cfg })
   },
 
-  deleteProfile: async (profileId: string) => {
+  deleteProfile: async profileId => {
     const { mdConfig } = get()
-    const profiles = (mdConfig.profiles || []).filter(p => p.id !== profileId)
-    const wasActive = mdConfig.activeProfileId === profileId
+    const profiles = (mdConfig.profiles || []).filter(profile => profile.id !== profileId)
     let cfg = { ...mdConfig, profiles }
-
-    if (wasActive) {
-      // Reset active profile if the active one was deleted
+    if (mdConfig.activeProfileId === profileId) {
       cfg.activeProfileId = undefined
-      if (profiles.length > 0) {
-        // Switch to the next available profile
-        await get().switchProfile(profiles[0].id)
-        return
-      }
+      if (profiles.length > 0) return get().switchProfile(profiles[0].id)
     }
-
     await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
-    try {
-      localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg))
-    } catch {}
+    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch {}
     set({ mdConfig: cfg })
   },
 
@@ -463,35 +401,42 @@ export const useSessionStore = create<MDState>()(
     } catch {
       config = defaultConfig()
     }
-
-    if (config.notesFolder) {
-      try {
-        await authorizeNotesFolder(config.notesFolder)
-      } catch (error) {
+    const startupFolder = config.notesFolder
+    if (startupFolder) {
+      try { await authorizeNotesFolder(startupFolder, config.nick || null) }
+      catch (error) {
         console.error('Saved notes folder could not be authorized:', error)
         set({ mdConfig: { ...config, notesFolder: null, onboardingComplete: false }, notesFolder: null })
         return
       }
     }
-
-    if (config.notesFolder && config.nick) {
-      const fileConfig = await loadConfig(config.notesFolder, config.nick)
-      config = { ...config, ...fileConfig }
+    if (startupFolder && config.nick) {
+      const fileConfig = await loadConfig(startupFolder, config.nick)
+      config = { ...config, ...fileConfig, notesFolder: startupFolder }
     }
-
     if (config.activeProfileId) {
       config = await applyProfileConfig(config, config.activeProfileId)
+      // Keep the vault that was successfully authorized above. This also makes
+      // upgrades from Windows configs work when the same vault is now on Linux.
+      if (startupFolder) config = { ...config, notesFolder: startupFolder }
     }
-
+    if (config.notesFolder) {
+      const normalizedFolder = config.notesFolder.replace(/\\/g, '/')
+      config = { ...config, notesFolder: normalizedFolder }
+    }
     set({ mdConfig: config })
     if (config.notesFolder) {
       set({ notesFolder: config.notesFolder })
-      await activityService.loadHistory(config.notesFolder)
-
-      const deleted = await loadDeleted(config.notesFolder, config.nick || null)
-      set({ deletedSessions: deleted })
-
-      await get().refreshSessions()
+      try {
+        await activityService.loadHistory(config.notesFolder)
+        set({ deletedSessions: await loadDeleted(config.notesFolder, config.nick || null) })
+        await get().refreshSessions()
+      } catch (error) {
+        console.error('Failed to initialize notes:', error)
+        set({ notesLoading: false, notesError: errorMessage(error) })
+      }
+    } else {
+      set({ notesFolder: null, sessions: [], filteredSessions: [], notesLoading: false, notesError: null })
     }
   },
 }))

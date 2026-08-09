@@ -12,6 +12,9 @@ const fs = vi.hoisted(() => ({
   mkdir: vi.fn(),
   readTextFile: vi.fn(),
   writeTextFile: vi.fn(),
+  rename: vi.fn(),
+  stat: vi.fn(),
+  remove: vi.fn(),
   readDir: vi.fn(),
 }))
 
@@ -90,7 +93,9 @@ describe('sessionStore initialization', () => {
     fs.exists.mockResolvedValue(true)
     fs.readTextFile
       .mockResolvedValueOnce('---\nTimework: 00:00:00\n---\nbody')
-      .mockResolvedValueOnce('---\nTimework: 00:00:01\n---\nbody')
+      .mockResolvedValueOnce('---\nTimework: 00:00:00\n---\nbody')
+      .mockResolvedValueOnce('---\nTimework: 00:00:00\n---\nbody')
+      .mockResolvedValue('---\nTimework: 00:00:00\n---\nbody')
     deps.logActivity
       .mockRejectedValueOnce(new Error('activity unavailable'))
       .mockResolvedValueOnce(undefined)

@@ -70,6 +70,7 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
           whileTap={{ scale: 0.96 }}
           onClick={handleDiscard}
           disabled={isSaving}
+          aria-label={t('recoveryDiscard')}
           className="p-2.5 hover:bg-white/10 rounded-xl text-zinc-400 transition-all"
         >
           <X size={18} />
@@ -170,6 +171,12 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
       )}
       </AnimatePresence>
 
+      {currentTimer?.saveError && (
+        <div role="alert" className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 relative z-10">
+          <span className="truncate">{t('saveFailed')}</span>
+          <button onClick={handleSave} className="shrink-0 rounded bg-red-500/20 px-2 py-1 hover:bg-red-500/30" aria-label={t('saveFailed')}>{t('save')}</button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4 relative z-10">
         <div className="flex flex-col">
           <motion.div
@@ -201,6 +208,7 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
             whileTap={{ scale: 0.96 }}
             onClick={handlePlayPause}
             disabled={isSaving}
+            aria-label={currentTimer?.status === 'RUNNING' ? t('pause') : t('start')}
             className="p-2.5 hover:bg-white/10 rounded-xl text-zinc-400 transition-all"
           >
             {currentTimer?.status === 'RUNNING' ? <Pause size={18} /> : <Play size={18} />}
@@ -211,6 +219,7 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
             whileTap={{ scale: 0.96 }}
             onClick={handleSave}
             disabled={isSaving}
+            aria-label={t('save')}
             className="p-2.5 hover:bg-red-500/10 rounded-xl text-zinc-400 transition-all disabled:opacity-50 disabled:cursor-wait"
           >
             <Save size={18} />

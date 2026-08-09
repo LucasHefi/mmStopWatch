@@ -95,6 +95,8 @@ export interface CommandInput {
   note_delete: NoteDeleteInput
 }
 
+export const CONFIRM = 'I confirm this mutating operation.' as const
+
 export type CommandName = keyof CommandInput
 
 export interface NoteDto {

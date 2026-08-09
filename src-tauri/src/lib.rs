@@ -3,13 +3,28 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_fs::FsExt;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+fn validate_profile_key(value: &str) -> Result<String, String> {
+    let key = value.trim();
+    if key.is_empty()
+        || key.chars().count() > 80
+        || key.chars().any(char::is_control)
+        || key.contains('/')
+        || key.contains('\\')
+        || key == "."
+        || key == ".."
+        || key.contains("..")
+    {
+        return Err("Profile key contains unsafe characters".to_owned());
+    }
+    Ok(key.to_owned())
 }
 
 #[tauri::command]
-fn authorize_folder<R: Runtime>(app: AppHandle<R>, path: String) -> Result<(), String> {
+fn authorize_folder<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    profile_key: Option<String>,
+) -> Result<(), String> {
     let folder = PathBuf::from(path.trim());
     if !folder.is_absolute() {
         return Err("Notes folder must be an absolute path".to_owned());
@@ -21,9 +36,24 @@ fn authorize_folder<R: Runtime>(app: AppHandle<R>, path: String) -> Result<(), S
     let canonical = folder
         .canonicalize()
         .map_err(|_| "Notes folder could not be resolved".to_owned())?;
-    app.fs_scope()
-        .allow_directory(canonical, true)
-        .map_err(|_| "Notes folder could not be authorized".to_owned())
+    let scope = app.fs_scope();
+    scope
+        .allow_directory(&canonical, true)
+        .map_err(|_| "Notes folder could not be authorized".to_owned())?;
+
+    // The recursive dynamic scope contains a glob pattern. On Unix a wildcard
+    // does not match a hidden component, so authorize the app-owned profile
+    // directory with a literal path as well, before it exists. This keeps the
+    // vault runtime-scoped without granting static home-directory access.
+    if let Some(profile_key) = profile_key {
+        let profile_key = validate_profile_key(&profile_key)?;
+        let profile_dir = canonical.join(format!(".mmST-{profile_key}"));
+        scope
+            .allow_directory(profile_dir, true)
+            .map_err(|_| "Profile directory could not be authorized".to_owned())?;
+    }
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -33,7 +63,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![greet, authorize_folder])
+        .invoke_handler(tauri::generate_handler![authorize_folder])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

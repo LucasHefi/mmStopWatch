@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { X, Save, Trash2 } from 'lucide-react'
 import { useTranslation } from '../i18n/useTranslation'
@@ -14,17 +15,26 @@ export default function CloseGuardDialog({ onClose, onSaveAndClose, onDiscardAnd
   const { t } = useTranslation()
   const activeTimers = useTimersStore(useShallow(selectActiveTimers))
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" role="presentation" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.96 }}
         className="bg-zinc-900 rounded-xl p-6 w-full max-w-md mx-4 border border-zinc-700/50 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-guard-title"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white">{t('closeGuardTitle')}</h2>
+          <h2 id="close-guard-title" className="text-lg font-semibold text-white">{t('closeGuardTitle')}</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors">
             <X size={18} />
           </button>

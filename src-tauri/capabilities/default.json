@@ -15,6 +15,8 @@
     "fs:allow-mkdir",
     "fs:allow-stat",
     "fs:allow-exists",
+    "fs:allow-rename",
+    "fs:allow-remove",
     "dialog:default",
     "notification:default",
     "opener:default",

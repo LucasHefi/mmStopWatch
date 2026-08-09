@@ -28,6 +28,11 @@ const ROUTES = Object.freeze({
   'report preview': { method: 'POST', path: '/api/v1/reports/preview' },
 })
 
+const SAFE_ERROR_CODES = new Set([
+  'INVALID_REQUEST', 'UNAUTHORIZED', 'FORBIDDEN', 'NOT_FOUND',
+  'CONFLICT', 'NOT_IMPLEMENTED', 'INTERNAL',
+])
+
 const MUTATING_COMMANDS = new Set([
   'timers start', 'timers pause', 'timers resume', 'timers stop', 'timers discard',
   'notes save', 'notes update', 'notes delete',
@@ -171,7 +176,8 @@ function errorFromHttpStatus(status) {
   if (status === 403) return ['FORBIDDEN', 'auth']
   if (status === 404) return ['NOT_FOUND', 'notFound']
   if (status === 409) return ['CONFLICT', 'conflict']
-  if (status >= 500) return ['INTERNAL', 'unavailable']
+  if (status === 501) return ['NOT_IMPLEMENTED', 'unavailable']
+  if (status >= 500) return ['INTERNAL', 'internal']
   return ['INVALID_REQUEST', 'usage']
 }
 
@@ -239,7 +245,8 @@ async function callApi(route, config, options, requestId) {
       throw new CliError('INTERNAL', 'Control plane returned invalid JSON', EXIT_CODES.INTERNAL)
     }
     if (!response.ok) {
-      const [code] = errorFromHttpStatus(response.status)
+      const apiCode = payload?.error?.code
+      const code = apiCode && SAFE_ERROR_CODES.has(apiCode) ? apiCode : errorFromHttpStatus(response.status)[0]
       const message = payload?.error?.message || `Control plane returned HTTP ${response.status}`
       throw new CliError(code, message, exitCodeForError(code))
     }
@@ -292,15 +299,18 @@ async function main(argv) {
     url: options.url || process.env.MMSTOPWATCH_CONTROL_PLANE_URL || fileConfig.controlPlaneUrl || DEFAULT_API_URL,
     token: process.env.MMSTOPWATCH_CONTROL_PLANE_TOKEN || fileConfig.token,
   }
-  const payload = await callApi(route, config, options, requestId)
-  if (options.json) process.stdout.write(`${JSON.stringify(payload)}\n`)
-  else process.stdout.write(`${humanOutput(payload)}\n`)
-  return payload?.ok === false ? exitCodeForError(payload.error?.code) : EXIT_CODES.OK
+  try {
+    const payload = await callApi(route, config, options, requestId)
+    if (options.json) process.stdout.write(`${JSON.stringify(payload)}\n`)
+    else process.stdout.write(`${humanOutput(payload)}\n`)
+    return payload?.ok === false ? exitCodeForError(payload.error?.code) : EXIT_CODES.OK
+  } catch (error) {
+    return printError(error instanceof CliError ? error : new CliError('INTERNAL', 'CLI failed', EXIT_CODES.INTERNAL), requestId, options.json)
+  }
 }
 
 try {
   process.exitCode = await main(process.argv.slice(2))
 } catch (error) {
-  const requestId = randomUUID()
-  process.exitCode = printError(error instanceof CliError ? error : new CliError('INTERNAL', 'CLI failed', EXIT_CODES.INTERNAL), requestId, process.argv.includes('--json'))
+  process.exitCode = printError(error instanceof CliError ? error : new CliError('INTERNAL', 'CLI failed', EXIT_CODES.INTERNAL), randomUUID(), process.argv.includes('--json'))
 }

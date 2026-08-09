@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ApplicationDispatcher, commandHandler } from '../application/dispatcher'
 import {
   COMMAND_REGISTRY,
+  CONFIRM,
   EVENT_TYPES,
   PROTOCOL_VERSION,
   type CommandRequest,
@@ -26,7 +27,7 @@ describe('application command contracts', () => {
   it('returns a versioned success envelope from a typed handler', async () => {
     const dispatcher = new ApplicationDispatcher({
       status: commandHandler(async (_input, context) => ({
-        appVersion: '1.7.0-rc.2',
+        appVersion: '1.7.0-rc.3',
         protocolVersion: '1',
         ready: true,
         activeProfileId: context.actor,
@@ -44,7 +45,7 @@ describe('application command contracts', () => {
       protocolVersion: '1',
       requestId: 'req-1',
       data: {
-        appVersion: '1.7.0-rc.2',
+        appVersion: '1.7.0-rc.3',
         protocolVersion: '1',
         ready: true,
         activeProfileId: 'cli',
@@ -92,6 +93,7 @@ describe('application command contracts', () => {
       actor: 'mcp',
       expectedRevision: 'revision-7',
       idempotencyKey: 'idem-7',
+      confirmation: CONFIRM,
       command: 'timer_start',
       input: { notePath: 'Projects/Note.md', initialElapsedMs: 1_000 },
     }

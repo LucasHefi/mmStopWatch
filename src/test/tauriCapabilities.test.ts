@@ -9,6 +9,8 @@ describe('Tauri filesystem capability', () => {
     expect(serialized).not.toContain('$HOME/**')
     expect(serialized).not.toContain('D:/**')
     expect(capability.permissions).toContain('fs:default')
+    expect(capability.permissions).toContain('fs:allow-rename')
+    expect(capability.permissions).toContain('fs:allow-remove')
   })
 
   it('enables a restrictive production content security policy', () => {
@@ -18,5 +20,9 @@ describe('Tauri filesystem capability', () => {
     expect(csp['default-src']).toContain("'self'")
     expect(csp['connect-src']).toBe('ipc: http://ipc.localhost')
     expect(JSON.stringify(csp)).not.toContain('https:')
+  })
+
+  it('exposes hidden profile directories inside the runtime-selected vault', () => {
+    expect(tauriConfig.plugins.fs).toEqual({ requireLiteralLeadingDot: false })
   })
 })

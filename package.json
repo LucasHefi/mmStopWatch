@@ -1,7 +1,7 @@
 {
   "name": "mmstopwatch",
   "private": true,
-  "version": "1.7.0-rc.2",
+  "version": "1.7.0-rc.3",
   "author": "Lukáš Hefner (mediamaker.cz)",
   "description": "Stopwatch for Obsidian & etc.",
   "homepage": "https://mediamaker.cz",
@@ -24,7 +24,8 @@
     "mcp:stdio": "tsx tools/mcp-stdio.ts",
     "cli": "node cli/mmstopwatch.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify:2.0": "node scripts/run-2.0-verification.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

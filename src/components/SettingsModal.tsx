@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import pkg from '../../package.json'
 import { useTranslation } from '../i18n/useTranslation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -23,16 +23,25 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('goals')
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   return (
     <AnimatePresence>
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" role="presentation">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96 }}
         className="bg-zinc-900 p-6 rounded-2xl w-[90vw] max-w-lg min-w-80 max-h-[90vh] overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
       >
-        <h3 className="text-xl mb-4">{t('settings')}</h3>
+        <h3 id="settings-title" className="text-xl mb-4">{t('settings')}</h3>
 
         <div className="flex gap-1 mb-4 border-b border-zinc-800 overflow-x-auto scrollbar-hide">
           {TABS.map(({ key, label, icon: Icon }) => (

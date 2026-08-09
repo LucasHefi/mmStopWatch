@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTranslation } from '../i18n/useTranslation'
 import { selectNotesFolder } from '../services/mdStorage'
-import { saveConfig as appSaveConfig } from '../services/appConfig'
 import NickStep from './onboarding/NickStep'
 import FolderStep from './onboarding/FolderStep'
 import FrontmatterStep from './onboarding/FrontmatterStep'
@@ -15,6 +14,8 @@ type Step = typeof steps[number]
 export default function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const { t } = useTranslation()
   const { mdConfig, setMDConfig } = useSessionStore()
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [step, setStep] = useState<Step>('nick')
   const [nick, setNick] = useState(mdConfig.nick || '')
   const [folder, setFolder] = useState(mdConfig.notesFolder || '')
@@ -57,12 +58,20 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
     if (step === 'nick' && !nick.trim()) return
     if (step === 'folder' && !folder) return
 
+    setError(null)
     if (step === 'config') {
       const config = buildConfig()
-      setMDConfig(config)
-      await appSaveConfig(config, folder, nick.trim())
-      saveConfigLegacy(config)
-      onComplete()
+      setSaving(true)
+      try {
+        await setMDConfig(config)
+        onComplete()
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        console.error('Failed to save onboarding configuration:', cause)
+        setError(message)
+      } finally {
+        setSaving(false)
+      }
       return
     }
 
@@ -73,28 +82,36 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   }
 
   async function handleSelectFolder() {
-    const result = await selectNotesFolder()
-    if (result) {
-      setFolder(result.folder)
-      setVaultName(result.vaultName || result.folder.split(/[/\\]/).pop() || '')
+    setError(null)
+    try {
+      const result = await selectNotesFolder()
+      if (result) {
+        setFolder(result.folder)
+        setVaultName(result.vaultName || result.folder.split(/[/\\]/).pop() || '')
+      }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      console.error('Failed to select notes folder:', cause)
+      setError(message)
     }
   }
 
   async function handleSkip() {
+    setError(null)
     const config = buildConfig()
-    setMDConfig(config)
-    saveConfigLegacy(config)
-    if (folder && config.nick) {
-      await appSaveConfig(config, folder, config.nick)
+    setSaving(true)
+    try {
+      await setMDConfig(config)
+      onComplete()
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      console.error('Failed to save skipped onboarding configuration:', cause)
+      setError(message)
+    } finally {
+      setSaving(false)
     }
-    onComplete()
   }
 
-  function saveConfigLegacy(cfg: Record<string, unknown>) {
-    try {
-      localStorage.setItem('mmstopwatch_md_config', JSON.stringify(cfg))
-    } catch {}
-  }
 
   const canProceed = step === 'nick' ? nick.trim().length > 0
     : step === 'folder' ? folder.length > 0
@@ -164,6 +181,13 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
           </motion.div>
         </AnimatePresence>
 
+        {error && (
+          <div className="mt-5 rounded-xl border border-red-900/70 bg-red-950/30 px-3 py-3 text-xs text-red-200" role="alert">
+            <div className="font-medium">{t('configurationFailed')}</div>
+            <div className="mt-1 break-words text-red-300/80">{error}</div>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-8">
           {stepIndex > 0 && (
             <button
@@ -175,14 +199,15 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
           )}
           <div className="flex-1" />
           <button
-            onClick={handleSkip}
-            className="px-4 py-2 text-zinc-500 hover:text-zinc-300 text-sm"
+            onClick={() => { void handleSkip() }}
+            disabled={saving}
+            className="px-4 py-2 text-zinc-500 hover:text-zinc-300 text-sm disabled:opacity-50"
           >
             {t('skip')}
           </button>
           <button
-            onClick={handleNext}
-            disabled={!canProceed}
+            onClick={() => { void handleNext() }}
+            disabled={!canProceed || saving}
             className={`px-6 py-2 rounded-xl text-sm font-medium transition-all ${
               canProceed
                 ? 'bg-indigo-600 hover:bg-indigo-500 text-white'

@@ -10,7 +10,7 @@ export default function GeneralTab() {
   const [nickInput, setNickInput] = useState(mdConfig.nick || '')
 
   const saveNick = () => setMDConfig({ ...mdConfig, nick: nickInput.trim() })
-  const updateLanguage = (v: string) => setLanguage(v)
+  const updateLanguage = (v: string) => { void setLanguage(v).catch(error => console.error('Failed to save language:', error)) }
   const updateAutoRefresh = (v: string) => setMDConfig({ autoRefreshInterval: parseInt(v) as 0 | 1 | 2 | 5 | 10 | 15 | 30 })
 
   return (
