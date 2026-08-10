@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { startHttpServer } from './controlPlaneServer'
 import { commandHandler } from '../src/application/dispatcher'
 import { VaultAdapter } from './vaultAdapter'
+import { ActivityAdapter, getStats, previewReport } from './activityAdapter'
 import { validateAbsoluteVaultPath } from '../src/services/pathSecurity'
 
 async function main(): Promise<void> {
@@ -41,6 +42,20 @@ async function main(): Promise<void> {
       injectedHandlers.list_notes = commandHandler(async (input) => {
         return adapter.listNotes(input)
       })
+
+      const nick = (process.env.MMSTOPWATCH_NICK || '').trim()
+      if (nick) {
+        const activityAdapter = new ActivityAdapter(resolvedPath, nick)
+        await activityAdapter.load()
+
+        injectedHandlers.get_stats = commandHandler(async (input) => {
+          return getStats(activityAdapter.getEntries(), input as { from?: string; to?: string })
+        })
+
+        injectedHandlers.preview_report = commandHandler(async (input) => {
+          return previewReport(activityAdapter.getEntries(), input as { from?: string; to?: string; format?: 'markdown' })
+        })
+      }
     } catch (error) {
       throw new Error(`Vault adapter init failed: ${error instanceof Error ? error.message : 'unknown'}`)
     }
