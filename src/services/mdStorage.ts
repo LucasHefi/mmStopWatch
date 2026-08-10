@@ -84,7 +84,7 @@ export function updateFrontmatter(content: string, key: string, value: string | 
 
 function isIgnoredNotesDirectory(name: string): boolean {
   const normalized = name
-  return normalized.startsWith('.') || normalized === 'node_modules'
+  return normalized === 'node_modules' || (normalized.startsWith('.') && !normalized.startsWith('.mmST-'))
 }
 
 function isSafeNotesEntryName(name: string): boolean {

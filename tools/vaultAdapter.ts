@@ -19,7 +19,7 @@ export interface VaultAdapterOptions {
 }
 
 function isIgnored(name: string): boolean {
-  return name.startsWith('.') || name === 'node_modules'
+  return name === 'node_modules' || (name.startsWith('.') && !name.startsWith('.mmST-'))
 }
 
 function isSafeEntryName(name: string): boolean {

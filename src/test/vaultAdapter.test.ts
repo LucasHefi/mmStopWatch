@@ -84,6 +84,7 @@ describe('VaultAdapter', () => {
 
     await mkdir(join(vault, '.obsidian'))
     await writeFile(join(vault, '.obsidian', 'secret.md'), '---\nTimework: 99:00:00\n---\nsecret')
+    await addNote(vault, '.mmST-alice/app.md', '---\nTimework: 00:45:00\n---\napp-owned')
 
     await mkdir(join(vault, 'node_modules', 'pkg'), { recursive: true })
     await writeFile(join(vault, 'node_modules', 'pkg', 'readme.md'), '---\nTimework: 99:00:00\n---\nlib')
@@ -98,8 +99,9 @@ describe('VaultAdapter', () => {
     await adapter.load()
 
     const result = adapter.listNotes({})
-    expect(result.notes).toHaveLength(3)
+    expect(result.notes).toHaveLength(4)
     expect(result.notes.map(n => n.relativePath)).toEqual(expect.arrayContaining([
+      '.mmST-alice/app.md',
       'src/app.md',
       'real-dir/inner.md',
       'real-target.md',

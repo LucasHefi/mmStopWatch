@@ -35,6 +35,21 @@ describe('NoteIndex directory boundaries', () => {
     expect(fs.readDir).not.toHaveBeenCalledWith('/vault/.kilocode')
   })
 
+  it('indexes app-owned .mmST-* directories but skips other hidden directories', async () => {
+    fs.readDir.mockImplementation(async (path: string) => {
+      if (path === '/vault') return [directory('.mmST-alice'), directory('.obsidian'), directory('.hidden'), file('root.md')]
+      if (path === '/vault/.mmST-alice') return [file('app-note.md')]
+      throw new Error('forbidden path: ' + path)
+    })
+
+    const sessions = await new NoteIndex().load(options)
+
+    expect(sessions.map(session => session.relativePath)).toEqual(['.mmST-alice/app-note.md', 'root.md'])
+    expect(fs.readDir).toHaveBeenCalledWith('/vault/.mmST-alice')
+    expect(fs.readDir).not.toHaveBeenCalledWith('/vault/.obsidian')
+    expect(fs.readDir).not.toHaveBeenCalledWith('/vault/.hidden')
+  })
+
   it('skips an inaccessible ordinary child directory and keeps readable notes', async () => {
     fs.readDir.mockImplementation(async (path: string) => {
       if (path === '/vault') return [directory('restricted'), file('root.md')]

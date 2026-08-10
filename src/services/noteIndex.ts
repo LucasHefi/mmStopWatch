@@ -22,9 +22,9 @@ interface FileMetadata {
 
 function isInternalDirectory(name: string): boolean {
   const normalized = name
-  // Hidden folders contain app metadata, plugins or tooling rather than vault
-  // notes. This includes .obsidian, .mmST-* and .kilocode.
-  return normalized.startsWith('.') || normalized === 'node_modules'
+  // Only app-owned hidden folders are part of the note tree. Other hidden
+  // folders contain vault metadata, plugins or tooling and stay excluded.
+  return normalized === 'node_modules' || (normalized.startsWith('.') && !normalized.startsWith('.mmST-'))
 }
 
 function isSafeEntryName(name: string): boolean {

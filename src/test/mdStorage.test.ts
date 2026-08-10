@@ -1,5 +1,21 @@
-import { describe, it, expect } from 'vitest'
-import { parseFrontmatter, updateFrontmatter, parseTimeToMs } from '../services/mdStorage'
+import { describe, it, expect, vi } from 'vitest'
+
+const fs = vi.hoisted(() => ({
+  readDir: vi.fn(),
+  readTextFile: vi.fn(),
+}))
+
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  BaseDirectory: { AppData: 'appData' },
+  readDir: fs.readDir,
+  readTextFile: fs.readTextFile,
+}))
+
+import { loadNotesFromFolder, parseFrontmatter, updateFrontmatter, parseTimeToMs } from '../services/mdStorage'
+
+const directory = (name: string) => ({ name, isDirectory: true, isFile: false, isSymlink: false })
+const file = (name: string) => ({ name, isDirectory: false, isFile: true, isSymlink: false })
 
 describe('parseFrontmatter', () => {
   it('parses simple key: value frontmatter', () => {
@@ -66,6 +82,24 @@ describe('parseFrontmatter', () => {
     const content = "---\ntitle: 'Hello World'\n---\nBody"
     const result = parseFrontmatter(content)
     expect(result.data.title).toBe('Hello World')
+  })
+})
+
+describe('loadNotesFromFolder directory boundaries', () => {
+  it('indexes app-owned .mmST-* directories but skips other hidden directories', async () => {
+    vi.clearAllMocks()
+    fs.readDir.mockImplementation(async (path: string) => {
+      if (path === '/vault') return [directory('.mmST-alice'), directory('.obsidian'), file('root.md')]
+      if (path === '/vault/.mmST-alice') return [file('app-note.md')]
+      throw new Error('forbidden path: ' + path)
+    })
+    fs.readTextFile.mockResolvedValue('---\nTimework: 00:05:00\n---\nReadable note')
+
+    const sessions = await loadNotesFromFolder('/vault', 'Timework')
+
+    expect(sessions.map(session => session.relativePath)).toEqual(['.mmST-alice/app-note.md', 'root.md'])
+    expect(fs.readDir).toHaveBeenCalledWith('/vault/.mmST-alice')
+    expect(fs.readDir).not.toHaveBeenCalledWith('/vault/.obsidian')
   })
 })
 
