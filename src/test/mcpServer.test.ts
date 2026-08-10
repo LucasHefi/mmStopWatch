@@ -289,6 +289,7 @@ describe('mmStopWatch MCP stdio contract', () => {
           revision: 'note-r1',
         })),
         timer_list: commandHandler(async () => ({ timers: [], revision: 'timer-r1' })),
+        profile_list: commandHandler(async () => ({ profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }], activeProfileId: 'vault-a' })),
         get_stats: commandHandler(async () => ({ totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 })),
         preview_report: commandHandler(async () => ({ format: 'markdown' as const, content: '# Report', truncated: false })),
       },
@@ -307,6 +308,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         'mmstopwatch_preview_report',
         'mmstopwatch_timer_list',
         'mmstopwatch_note_get',
+        'mmstopwatch_profile_list',
         'mmstopwatch_analytics_stats',
         'mmstopwatch_reports_preview',
       ])
@@ -332,10 +334,17 @@ describe('mmStopWatch MCP stdio contract', () => {
       const timersText = (timers as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(timersText)).toMatchObject({ ok: true, data: { timers: [], revision: 'timer-r1' } })
 
+      const profiles = await handler(request('tools/call', {
+        name: 'mmstopwatch_profile_list',
+        arguments: {},
+      }, 5))
+      const profilesText = (profiles as { result: { content: [{ text: string }] } }).result.content[0].text
+      expect(JSON.parse(profilesText)).toMatchObject({ ok: true, data: { profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }] } })
+
       const report = await handler(request('tools/call', {
         name: 'mmstopwatch_preview_report',
         arguments: { format: 'markdown' },
-      }, 5))
+      }, 6))
       const reportText = (report as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(reportText)).toMatchObject({ ok: true, data: { format: 'markdown', content: '# Report', truncated: false } })
     } finally {

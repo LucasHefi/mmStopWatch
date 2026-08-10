@@ -179,6 +179,25 @@ describe('localhost control plane HTTP boundary', () => {
     await expect(response.json()).resolves.toMatchObject({ ok: true, data: { timers, revision: 'timer-r1' } })
   })
 
+  it('serves an injected read-only profile_list handler without exposing vault paths', async () => {
+    const profiles = [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }]
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: { profile_list: commandHandler(async () => ({ profiles, activeProfileId: 'vault-a' })) },
+    })
+    servers.push(server)
+    const headers = { Authorization: `Bearer ${server.token}` }
+
+    const capabilities = await fetch(`${server.url}/api/v1/capabilities`, { headers })
+    await expect(capabilities.json()).resolves.toMatchObject({ ok: true, data: { commands: expect.arrayContaining(['profile_list']) } })
+
+    const response = await fetch(`${server.url}/api/v1/profiles`, { headers })
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { data: { profiles: Array<Record<string, unknown>> } }
+    expect(payload.data.profiles).toEqual(profiles)
+    expect(JSON.stringify(payload)).not.toContain('notesFolder')
+  })
+
   it('does not advertise or dispatch injected mutating handlers', async () => {
     const server = await startHttpServer({
       token: 'test-token',

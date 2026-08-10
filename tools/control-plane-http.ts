@@ -4,6 +4,7 @@ import { startHttpServer } from './controlPlaneServer'
 import { commandHandler } from '../src/application/dispatcher'
 import { VaultAdapter } from './vaultAdapter'
 import { ActivityAdapter, getStats, previewReport } from './activityAdapter'
+import { ProfileAdapter } from './profileAdapter'
 import { validateAbsoluteVaultPath } from '../src/services/pathSecurity'
 
 async function main(): Promise<void> {
@@ -38,6 +39,9 @@ async function main(): Promise<void> {
         statsFieldKeys: statsFieldKeys.length > 0 ? statsFieldKeys : undefined,
       })
       await adapter.load()
+
+      const profileAdapter = new ProfileAdapter(resolvedPath)
+      injectedHandlers.profile_list = commandHandler(async () => profileAdapter.listProfiles())
 
       injectedHandlers.list_notes = commandHandler(async (input) => {
         return adapter.listNotes(input)

@@ -24,6 +24,7 @@ const ROUTES = Object.freeze({
   'status': { method: 'GET', path: '/api/v1/status' },
   'capabilities': { method: 'GET', path: '/api/v1/capabilities' },
   'timers list': { method: 'GET', path: '/api/v1/timers' },
+  'profiles list': { method: 'GET', path: '/api/v1/profiles' },
   'notes list': { method: 'GET', path: '/api/v1/notes' },
   'notes get': { method: 'GET', path: '/api/v1/notes' },
   'stats': { method: 'GET', path: '/api/v1/stats' },

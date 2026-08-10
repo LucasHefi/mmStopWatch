@@ -107,6 +107,7 @@ describe('mmstopwatch CLI contract', () => {
           revision: 'note-r1',
         })),
         timer_list: commandHandler(async () => ({ timers: [], revision: 'timer-r1' })),
+        profile_list: commandHandler(async () => ({ profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }], activeProfileId: 'vault-a' })),
         get_stats: commandHandler(async input => {
           statsInput = input
           return { from: '2026-01-01', to: '2026-01-31', totalDurationMs: 120_000, sessionCount: 1, noteCount: 1 }
@@ -134,6 +135,10 @@ describe('mmstopwatch CLI contract', () => {
       const timers = await runCli(['--json', '--request-id', 'cli-timers-1', 'timers', 'list'], commonEnv)
       expect(timers.code).toBe(0)
       expect(JSON.parse(timers.stdout)).toMatchObject({ ok: true, requestId: 'cli-timers-1', data: { timers: [], revision: 'timer-r1' } })
+
+      const profiles = await runCli(['--json', '--request-id', 'cli-profiles-1', 'profiles', 'list'], commonEnv)
+      expect(profiles.code).toBe(0)
+      expect(JSON.parse(profiles.stdout)).toMatchObject({ ok: true, requestId: 'cli-profiles-1', data: { profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }] } })
 
       const stats = await runCli(['--json', '--request-id', 'cli-stats-1', '--from', '2026-01-01', '--to', '2026-01-31', 'stats'], commonEnv)
       expect(stats.code).toBe(0)
