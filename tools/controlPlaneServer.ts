@@ -125,6 +125,9 @@ function routeRequest(url: URL, method: string, body: Record<string, unknown>): 
   if (method === 'GET' && url.pathname === '/api/v1/capabilities') {
     return { protocolVersion: PROTOCOL_VERSION, requestId: requestIdValue, actor: 'http', command: 'capabilities', input: {} }
   }
+  if (method === 'GET' && url.pathname === '/api/v1/timers') {
+    return { protocolVersion: PROTOCOL_VERSION, requestId: requestIdValue, actor: 'http', command: 'timer_list', input: {} }
+  }
   if (method === 'GET' && url.pathname === '/api/v1/notes') {
     const rawPath = url.searchParams.get('path')
     if (rawPath !== null) {

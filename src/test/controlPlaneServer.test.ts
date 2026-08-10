@@ -161,6 +161,24 @@ describe('localhost control plane HTTP boundary', () => {
     await expect(unsafe.json()).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } })
   })
 
+  it('serves an injected read-only timer_list handler and advertises it', async () => {
+    const timers = [{ id: 'timer-1', notePath: 'projects/work.md', name: 'Work', status: 'RUNNING' as const, elapsedMs: 100, baseElapsedMs: 100, pausedOffsetMs: 0 }]
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: { timer_list: commandHandler(async () => ({ timers, revision: 'timer-r1' })) },
+    })
+    servers.push(server)
+    const headers = { Authorization: `Bearer ${server.token}` }
+
+    const capabilities = await fetch(`${server.url}/api/v1/capabilities`, { headers })
+    expect(capabilities.status).toBe(200)
+    await expect(capabilities.json()).resolves.toMatchObject({ ok: true, data: { commands: expect.arrayContaining(['timer_list']) } })
+
+    const response = await fetch(`${server.url}/api/v1/timers`, { headers })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ ok: true, data: { timers, revision: 'timer-r1' } })
+  })
+
   it('does not advertise or dispatch injected mutating handlers', async () => {
     const server = await startHttpServer({
       token: 'test-token',

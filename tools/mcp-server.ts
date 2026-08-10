@@ -96,6 +96,7 @@ export const MCP_PLANNED_TOOL_DEFINITIONS: McpToolDefinition[] = ALL_MCP_TOOL_DE
 const TOOL_NAMES_BY_COMMAND: Record<string, string[]> = {
   status: ['mmstopwatch_status'],
   capabilities: ['mmstopwatch_capabilities'],
+  timer_list: ['mmstopwatch_timer_list'],
   list_notes: ['mmstopwatch_list_notes'],
   note_get: ['mmstopwatch_note_get'],
   get_stats: ['mmstopwatch_get_stats', 'mmstopwatch_analytics_stats'],
@@ -129,6 +130,7 @@ interface ToolRoute {
 const TOOL_ROUTES: Record<string, ToolRoute> = {
   mmstopwatch_status: { method: 'GET', path: '/api/v1/status' },
   mmstopwatch_capabilities: { method: 'GET', path: '/api/v1/capabilities' },
+  mmstopwatch_timer_list: { method: 'GET', path: '/api/v1/timers' },
   mmstopwatch_list_notes: { method: 'GET', path: '/api/v1/notes' },
   mmstopwatch_note_get: { method: 'GET', path: '/api/v1/notes' },
   mmstopwatch_get_stats: { method: 'GET', path: '/api/v1/stats' },

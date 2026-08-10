@@ -288,6 +288,7 @@ describe('mmStopWatch MCP stdio contract', () => {
           note: { relativePath: input.relativePath, name: 'Work', durationMs: 100, tags: ['dev'], hasFrontmatter: true },
           revision: 'note-r1',
         })),
+        timer_list: commandHandler(async () => ({ timers: [], revision: 'timer-r1' })),
         get_stats: commandHandler(async () => ({ totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 })),
         preview_report: commandHandler(async () => ({ format: 'markdown' as const, content: '# Report', truncated: false })),
       },
@@ -304,6 +305,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         'mmstopwatch_list_notes',
         'mmstopwatch_get_stats',
         'mmstopwatch_preview_report',
+        'mmstopwatch_timer_list',
         'mmstopwatch_note_get',
         'mmstopwatch_analytics_stats',
         'mmstopwatch_reports_preview',
@@ -323,10 +325,17 @@ describe('mmStopWatch MCP stdio contract', () => {
       const noteText = (note as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(noteText)).toMatchObject({ ok: true, data: { note: { relativePath: 'projects/work.md', name: 'Work' }, revision: 'note-r1' } })
 
+      const timers = await handler(request('tools/call', {
+        name: 'mmstopwatch_timer_list',
+        arguments: {},
+      }, 4))
+      const timersText = (timers as { result: { content: [{ text: string }] } }).result.content[0].text
+      expect(JSON.parse(timersText)).toMatchObject({ ok: true, data: { timers: [], revision: 'timer-r1' } })
+
       const report = await handler(request('tools/call', {
         name: 'mmstopwatch_preview_report',
         arguments: { format: 'markdown' },
-      }, 4))
+      }, 5))
       const reportText = (report as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(reportText)).toMatchObject({ ok: true, data: { format: 'markdown', content: '# Report', truncated: false } })
     } finally {

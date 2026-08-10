@@ -106,6 +106,7 @@ describe('mmstopwatch CLI contract', () => {
           note: { relativePath: input.relativePath, name: 'work', durationMs: 120_000, tags: ['client'], hasFrontmatter: true },
           revision: 'note-r1',
         })),
+        timer_list: commandHandler(async () => ({ timers: [], revision: 'timer-r1' })),
         get_stats: commandHandler(async input => {
           statsInput = input
           return { from: '2026-01-01', to: '2026-01-31', totalDurationMs: 120_000, sessionCount: 1, noteCount: 1 }
@@ -129,6 +130,10 @@ describe('mmstopwatch CLI contract', () => {
       const note = await runCli(['--json', '--request-id', 'cli-note-1', '--path', 'work.md', 'notes', 'get'], commonEnv)
       expect(note.code).toBe(0)
       expect(JSON.parse(note.stdout)).toMatchObject({ ok: true, requestId: 'cli-note-1', data: { note: { relativePath: 'work.md' }, revision: 'note-r1' } })
+
+      const timers = await runCli(['--json', '--request-id', 'cli-timers-1', 'timers', 'list'], commonEnv)
+      expect(timers.code).toBe(0)
+      expect(JSON.parse(timers.stdout)).toMatchObject({ ok: true, requestId: 'cli-timers-1', data: { timers: [], revision: 'timer-r1' } })
 
       const stats = await runCli(['--json', '--request-id', 'cli-stats-1', '--from', '2026-01-01', '--to', '2026-01-31', 'stats'], commonEnv)
       expect(stats.code).toBe(0)
@@ -172,9 +177,17 @@ describe('mmstopwatch CLI contract', () => {
   })
 
   it('returns a stable unavailable result instead of pretending unsupported groups work', async () => {
-    const result = await runCli(['timers', 'list'], { MMSTOPWATCH_CONTROL_PLANE_TOKEN: 'test-token' })
-    expect(result.code).toBe(6)
-    expect(result.stderr).toContain('not available')
+    const server = await startHttpServer({ token: 'test-token' })
+    try {
+      const result = await runCli(['timers', 'list'], {
+        MMSTOPWATCH_CONTROL_PLANE_URL: server.url,
+        MMSTOPWATCH_CONTROL_PLANE_TOKEN: server.token,
+      })
+      expect(result.code).toBe(6)
+      expect(result.stderr).toContain('not available')
+    } finally {
+      await server.close()
+    }
   })
 
   it('maps HTTP 501 NOT_IMPLEMENTED to exit 6 with JSON error envelope', async () => {
