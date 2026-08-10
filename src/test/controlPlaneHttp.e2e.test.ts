@@ -87,6 +87,48 @@ async function stopControlPlane(child: ChildProcess): Promise<void> {
   })
 }
 
+function runMcpSession(baseUrl: string): Promise<{ code: number; stdout: string; stderr: string }> {
+  const isWindows = process.platform === 'win32'
+  const executable = isWindows ? (process.env.ComSpec || process.env.COMSPEC || 'cmd.exe') : 'npm'
+  const args = isWindows
+    ? ['/d', '/s', '/c', 'npm.cmd --silent run mcp:stdio']
+    : ['--silent', 'run', 'mcp:stdio']
+  const child = spawn(executable, args, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MMSTOPWATCH_CONTROL_PLANE_URL: baseUrl,
+      MMSTOPWATCH_CONTROL_PLANE_TOKEN: 'e2e-control-plane-token',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  children.push(child)
+
+  let stdout = ''
+  let stderr = ''
+  child.stdout?.on('data', chunk => { stdout += String(chunk) })
+  child.stderr?.on('data', chunk => { stderr += String(chunk) })
+  const exit = new Promise<number>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', code => resolve(code ?? -1))
+  })
+  child.stdin?.end([
+    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2025-06-18',
+      clientInfo: { name: 'control-plane-e2e-client', version: '1.0.0' },
+      capabilities: {},
+    } }),
+    JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+    JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+    JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'mmstopwatch_profile_list', arguments: {} } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'mmstopwatch_config_get', arguments: {} } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'mmstopwatch_notification_status', arguments: {} } }),
+  ].join('\n') + '\n')
+
+  return exit.then(code => ({ code, stdout, stderr }))
+}
+
 afterEach(async () => {
   await Promise.all(children.splice(0).map(stopControlPlane))
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
@@ -137,5 +179,40 @@ describe('control-plane-http wrapper', () => {
 
     await stopControlPlane(child)
     await expect(fetch(`${baseUrl}/api/v1/status`)).rejects.toThrow()
+  })
+
+  it('serves the same reads through a real MCP stdio process and closes on EOF', async () => {
+    const vault = await mkdtemp(join(tmpdir(), 'mmstopwatch-mcp-e2e-'))
+    tempDirs.push(vault)
+    await mkdir(join(vault, '.mmST-alice'))
+    await writeFile(join(vault, '.mmST-alice', 'config.json'), JSON.stringify({
+      activeProfileId: 'vault-a',
+      profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice' }],
+      frontmatterKey: 'Timework',
+      notifications: { enabled: true, intervalMinutes: 30 },
+      timerLimitAlert: { soundEnabled: false, notificationsEnabled: true, showOverlay: true },
+    }))
+
+    const { ready } = startControlPlane(vault)
+    const baseUrl = await ready
+    const session = await runMcpSession(baseUrl)
+    expect(session.code).toBe(0)
+    expect(session.stderr).toContain(`mmStopWatch MCP stdio adapter for ${baseUrl}`)
+
+    const frames = session.stdout.trim().split('\n').map(line => JSON.parse(line) as { id: number; result?: { tools?: Array<{ name: string }>; content?: Array<{ text: string }>; isError?: boolean } })
+    expect(frames).toHaveLength(5)
+    expect(frames.map(frame => frame.id)).toEqual([1, 2, 3, 4, 5])
+    expect(frames[1].result?.tools?.map(tool => tool.name)).toEqual(expect.arrayContaining([
+      'mmstopwatch_profile_list',
+      'mmstopwatch_config_get',
+      'mmstopwatch_notification_status',
+    ]))
+
+    for (const frame of frames.slice(2)) {
+      expect(frame.result?.isError).toBe(false)
+      const text = frame.result?.content?.[0]?.text
+      expect(text).toBeDefined()
+      expect(JSON.parse(text || '{}')).toMatchObject({ ok: true })
+    }
   })
 })
