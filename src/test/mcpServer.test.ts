@@ -128,6 +128,36 @@ describe('mmStopWatch MCP stdio contract', () => {
     expect(JSON.stringify(MCP_TOOL_DEFINITIONS)).not.toContain('note_delete')
   })
 
+  it('advertises runtime-enabled read tools from control-plane capabilities', async () => {
+    const handler = createMcpRequestHandler({
+      fetchImpl: async input => {
+        if (String(input).endsWith('/api/v1/capabilities')) {
+          return new Response(JSON.stringify({
+            ok: true,
+            data: { commands: ['status', 'capabilities', 'list_notes', 'get_stats', 'preview_report'] },
+          }), { headers: { 'content-type': 'application/json' } })
+        }
+        return new Response('{}')
+      },
+      token: 'test-token',
+      apiBaseUrl: 'http://127.0.0.1:1234',
+    })
+
+    await initialize(handler)
+    const response = await handler(request('tools/list'))
+    const tools = (response as { result: { tools: McpToolDefinition[] } }).result.tools
+    expect(tools.map(toolDefinition => toolDefinition.name)).toEqual([
+      'mmstopwatch_status',
+      'mmstopwatch_capabilities',
+      'mmstopwatch_list_notes',
+      'mmstopwatch_get_stats',
+      'mmstopwatch_preview_report',
+      'mmstopwatch_analytics_stats',
+      'mmstopwatch_reports_preview',
+    ])
+    expect(tools.map(toolDefinition => toolDefinition.name)).not.toContain('mmstopwatch_timer_list')
+  })
+
   it('maps a tool call to the authenticated API and returns MCP text content', async () => {
     const calls: Array<{ url: string; method: string; headers: Headers }> = []
     const handler = createMcpRequestHandler({

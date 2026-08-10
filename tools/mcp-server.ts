@@ -93,9 +93,21 @@ const ALL_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 
 /** Planned schemas are kept for future API-backed command groups; only implemented routes are advertised. */
 export const MCP_PLANNED_TOOL_DEFINITIONS: McpToolDefinition[] = ALL_MCP_TOOL_DEFINITIONS
-const TOOL_NAME_BY_COMMAND: Record<string, string> = { status: 'mmstopwatch_status', capabilities: 'mmstopwatch_capabilities' }
-const IMPLEMENTED_TOOL_NAMES = new Set(IMPLEMENTED_COMMANDS.map(command => TOOL_NAME_BY_COMMAND[command]).filter((name): name is string => Boolean(name)))
+const TOOL_NAMES_BY_COMMAND: Record<string, string[]> = {
+  status: ['mmstopwatch_status'],
+  capabilities: ['mmstopwatch_capabilities'],
+  list_notes: ['mmstopwatch_list_notes'],
+  get_stats: ['mmstopwatch_get_stats', 'mmstopwatch_analytics_stats'],
+  preview_report: ['mmstopwatch_preview_report', 'mmstopwatch_reports_preview'],
+}
+const IMPLEMENTED_TOOL_NAMES = new Set(IMPLEMENTED_COMMANDS.flatMap(command => TOOL_NAMES_BY_COMMAND[command] || []))
 export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = ALL_MCP_TOOL_DEFINITIONS.filter(definition => IMPLEMENTED_TOOL_NAMES.has(definition.name))
+
+function toolDefinitionsForCommands(commands: readonly string[]): McpToolDefinition[] {
+  const enabledCommands = new Set(commands)
+  return ALL_MCP_TOOL_DEFINITIONS.filter(definition => Object.entries(TOOL_NAMES_BY_COMMAND)
+    .some(([command, names]) => enabledCommands.has(command) && names.includes(definition.name)))
+}
 
 interface FetchOptions {
   fetchImpl?: typeof fetch
@@ -172,7 +184,7 @@ function validateInitializeParams(params: unknown): string | undefined {
 
 function validateToolArguments(name: string, args: unknown): string | undefined {
   if (!isRecord(args)) return 'tools/call arguments must be an object'
-  const definition = MCP_TOOL_DEFINITIONS.find(toolDefinition => toolDefinition.name === name)
+  const definition = MCP_PLANNED_TOOL_DEFINITIONS.find(toolDefinition => toolDefinition.name === name)
   if (!definition) return 'Unknown tool'
   const properties = definition.inputSchema.properties || {}
   const propertyNames = new Set(Object.keys(properties))
@@ -231,6 +243,12 @@ function redactError(error: unknown): string {
     .replace(/[A-Za-z0-9_-]{20,}/g, '[REDACTED]')
 }
 
+function extractCapabilityCommands(payload: unknown): string[] | undefined {
+  if (!isRecord(payload) || !isRecord(payload.data) || !Array.isArray(payload.data.commands)) return undefined
+  const commands = payload.data.commands
+  return commands.every(command => typeof command === 'string') ? commands : undefined
+}
+
 async function fetchWithRetry(url: string, init: RequestInit, options: FetchOptions): Promise<Response> {
   const fetchImpl = options.fetchImpl || fetch
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS
@@ -259,8 +277,30 @@ async function fetchWithRetry(url: string, init: RequestInit, options: FetchOpti
   throw lastError instanceof Error ? lastError : new Error('Control plane request failed')
 }
 
+async function discoverRuntimeTools(options: FetchOptions, requestId?: JsonRpcId): Promise<McpToolDefinition[]> {
+  if (!options.token?.trim()) return MCP_TOOL_DEFINITIONS
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.token}`,
+    Accept: 'application/json',
+  }
+  if (requestId !== undefined) headers['X-Request-Id'] = sanitizeRequestId(requestId)
+
+  try {
+    const baseUrl = options.apiBaseUrl || DEFAULT_API_BASE_URL
+    const url = new URL('/api/v1/capabilities', `${baseUrl.replace(/\/$/, '')}/`).toString()
+    const response = await fetchWithRetry(url, { method: 'GET', headers }, options)
+    if (!response.ok) return MCP_TOOL_DEFINITIONS
+    const raw = await response.text()
+    const payload = raw ? JSON.parse(raw) as unknown : undefined
+    const commands = extractCapabilityCommands(payload)
+    return commands ? toolDefinitionsForCommands(commands) : MCP_TOOL_DEFINITIONS
+  } catch {
+    return MCP_TOOL_DEFINITIONS
+  }
+}
+
 async function callTool(name: string, args: Record<string, unknown>, options: FetchOptions, requestId?: JsonRpcId): Promise<ReturnType<typeof textResult>> {
-  if (!MCP_TOOL_DEFINITIONS.some(toolDefinition => toolDefinition.name === name)) return toolError('Tool is not available')
+  if (!MCP_PLANNED_TOOL_DEFINITIONS.some(toolDefinition => toolDefinition.name === name)) return toolError('Tool is not available')
   if (MUTATING_TOOL_NAMES.has(name) && args.confirmed !== true) return toolError('Confirmation required for this mutation')
   const route = TOOL_ROUTES[name]
   if (!route) return toolError('Tool is not available in the current control-plane API')
@@ -347,14 +387,14 @@ export function createMcpRequestHandler(options: McpRequestHandlerOptions = {}):
     if (input.method === 'ping') return response(id, {})
     if (input.method === 'tools/list') {
       if (input.params !== undefined && !isRecord(input.params)) return errorResponse(id, -32602, 'tools/list params must be an object')
-      return response(id, { tools: MCP_TOOL_DEFINITIONS })
+      return response(id, { tools: await discoverRuntimeTools(requestOptions, id) })
     }
     if (input.method === 'tools/call') {
       const params = input.params
       if (!isRecord(params)) return errorResponse(id, -32602, 'tools/call params must be an object')
       const name = params.name
       if (typeof name !== 'string') return errorResponse(id, -32602, 'Tool name is required')
-      if (!MCP_TOOL_DEFINITIONS.some(toolDefinition => toolDefinition.name === name)) return errorResponse(id, -32602, 'Unknown tool')
+      if (!MCP_PLANNED_TOOL_DEFINITIONS.some(toolDefinition => toolDefinition.name === name)) return errorResponse(id, -32602, 'Unknown tool')
       const args = params.arguments === undefined ? {} : params.arguments
       const validationError = validateToolArguments(name, args)
       if (validationError) return errorResponse(id, -32602, validationError)
