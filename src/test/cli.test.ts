@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { startHttpServer } from '../../tools/controlPlaneServer'
+import { commandHandler } from '../../src/application/dispatcher'
 
 interface CliResult {
   code: number
@@ -85,6 +86,51 @@ describe('mmstopwatch CLI contract', () => {
       expect(result.code).toBe(0)
       expect(result.stdout).toContain('mmStopWatch 1.7.0-rc.3')
       expect(result.stdout).toContain('ready')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('calls the available notes, stats and report read routes through the CLI', async () => {
+    let notesInput: unknown
+    let statsInput: unknown
+    let reportInput: unknown
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: {
+        list_notes: commandHandler(async input => {
+          notesInput = input
+          return { notes: [{ relativePath: 'work.md', name: 'work', durationMs: 120_000, tags: ['client'], hasFrontmatter: true }] }
+        }),
+        get_stats: commandHandler(async input => {
+          statsInput = input
+          return { from: '2026-01-01', to: '2026-01-31', totalDurationMs: 120_000, sessionCount: 1, noteCount: 1 }
+        }),
+        preview_report: commandHandler(async input => {
+          reportInput = input
+          return { format: 'markdown' as const, content: '# January', truncated: false }
+        }),
+      },
+    })
+    try {
+      const commonEnv = {
+        MMSTOPWATCH_CONTROL_PLANE_URL: server.url,
+        MMSTOPWATCH_CONTROL_PLANE_TOKEN: server.token,
+      }
+      const notes = await runCli(['--json', '--request-id', 'cli-notes-1', '--limit', '10', '--tags', 'client,internal', 'notes', 'list'], commonEnv)
+      expect(notes.code).toBe(0)
+      expect(JSON.parse(notes.stdout)).toMatchObject({ ok: true, requestId: 'cli-notes-1', data: { notes: [{ relativePath: 'work.md' }] } })
+      expect(notesInput).toEqual({ limit: 10, tags: ['client', 'internal'] })
+
+      const stats = await runCli(['--json', '--request-id', 'cli-stats-1', '--from', '2026-01-01', '--to', '2026-01-31', 'stats'], commonEnv)
+      expect(stats.code).toBe(0)
+      expect(JSON.parse(stats.stdout)).toMatchObject({ ok: true, requestId: 'cli-stats-1', data: { totalDurationMs: 120_000 } })
+      expect(statsInput).toEqual({ from: '2026-01-01', to: '2026-01-31' })
+
+      const report = await runCli(['--json', '--request-id', 'cli-report-1', '--format', 'markdown', 'report', 'preview'], commonEnv)
+      expect(report.code).toBe(0)
+      expect(JSON.parse(report.stdout)).toMatchObject({ ok: true, requestId: 'cli-report-1', data: { content: '# January' } })
+      expect(reportInput).toEqual({ format: 'markdown' })
     } finally {
       await server.close()
     }
