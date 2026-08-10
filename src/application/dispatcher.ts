@@ -8,7 +8,7 @@ import type {
 } from './contracts'
 import { COMMAND_REGISTRY, CONFIRM } from './contracts'
 import { createSafeError, internalError } from './errors'
-import type { AuditSink, IdempotencyStore, MonotonicClock } from './ports'
+import type { AuditSink, IdempotencyStore, MonotonicClock, RevisionProvider } from './ports'
 
 export type CommandHandler<C extends CommandName> = (
   input: CommandInput[C],
@@ -25,15 +25,33 @@ export interface ApplicationDispatcherOptions {
   auditSink?: AuditSink
   idempotencyStore?: IdempotencyStore
   monotonicClock?: MonotonicClock
+  revisionProvider?: RevisionProvider
 }
 
 export class ApplicationDispatcher {
+  private mutationTail: Promise<void> = Promise.resolve()
+
   constructor(
     private readonly handlers: CommandRegistry = {},
     private readonly options: ApplicationDispatcherOptions = {},
   ) {}
 
   async dispatch<C extends CommandName>(request: CommandRequest<C>): Promise<CommandResult<CommandOutput[C]>> {
+    const def = (COMMAND_REGISTRY as Record<string, { mutating: boolean }>)[request.command]
+    if (!def?.mutating || !this.options.revisionProvider) return this.dispatchInternal(request)
+
+    const previous = this.mutationTail
+    let release!: () => void
+    this.mutationTail = new Promise<void>(resolve => { release = resolve })
+    await previous
+    try {
+      return await this.dispatchInternal(request)
+    } finally {
+      release()
+    }
+  }
+
+  private async dispatchInternal<C extends CommandName>(request: CommandRequest<C>): Promise<CommandResult<CommandOutput[C]>> {
     if (request.protocolVersion !== '1' || !request.requestId.trim()) {
       const envelopeError = this.errorResult(request.requestId || 'unknown', createSafeError('INVALID_REQUEST', 'Invalid command envelope'))
       void this.recordAudit(request, 'rejected')
@@ -59,6 +77,25 @@ export class ApplicationDispatcher {
         const parsed = JSON.parse(cached) as CommandResult<CommandOutput[C]>
         void this.recordAudit(request, 'accepted')
         return parsed
+      }
+    }
+
+    if (def.mutating && request.expectedRevision !== undefined && this.options.revisionProvider) {
+      let actualRevision: string
+      try {
+        actualRevision = await this.options.revisionProvider.getCurrentRevision()
+      } catch {
+        const err = this.errorResult(request.requestId, internalError())
+        void this.recordAudit(request, 'failed')
+        return err
+      }
+      if (actualRevision !== request.expectedRevision) {
+        const err = this.errorResult(request.requestId, createSafeError('CONFLICT', 'Revision is stale', {
+          retryable: true,
+          details: { expectedRevision: request.expectedRevision, actualRevision },
+        }))
+        void this.recordAudit(request, 'rejected')
+        return err
       }
     }
 

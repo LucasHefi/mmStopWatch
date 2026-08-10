@@ -4,7 +4,7 @@ import {
   CONFIRM,
   type CommandRequest,
 } from '../application/contracts'
-import type { AuditSink, IdempotencyStore, MonotonicClock } from '../application/ports'
+import type { AuditSink, IdempotencyStore, MonotonicClock, RevisionProvider } from '../application/ports'
 
 describe('ApplicationDispatcher A0 slice', () => {
   describe('options form', () => {
@@ -78,6 +78,89 @@ describe('ApplicationDispatcher A0 slice', () => {
       if (!result.ok) {
         expect(result.error.code).toBe('NOT_IMPLEMENTED')
       }
+    })
+  })
+
+  describe('optimistic concurrency', () => {
+    it('rejects a stale mutating request before invoking its handler', async () => {
+      const handler = vi.fn().mockResolvedValue({
+        timer: {
+          id: 't1',
+          notePath: 'Projects/Note.md',
+          name: 'Test',
+          status: 'RUNNING',
+          elapsedMs: 0,
+          baseElapsedMs: 0,
+          pausedOffsetMs: 0,
+        },
+        revision: 'r3',
+      })
+      const revisionProvider: RevisionProvider = {
+        getCurrentRevision: vi.fn().mockResolvedValue('r2'),
+      }
+      const dispatcher = new ApplicationDispatcher(
+        { timer_start: commandHandler(handler) },
+        { revisionProvider },
+      )
+
+      const result = await dispatcher.dispatch({
+        protocolVersion: '1',
+        requestId: 'req-stale-1',
+        actor: 'http',
+        command: 'timer_start',
+        input: { notePath: 'Projects/Note.md' },
+        expectedRevision: 'r1',
+        confirmation: CONFIRM,
+      })
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'CONFLICT',
+          message: 'Revision is stale',
+          retryable: true,
+          details: { expectedRevision: 'r1', actualRevision: 'r2' },
+        },
+      })
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it('serializes concurrent revision-checked mutations so only one can commit', async () => {
+      let currentRevision = 'r1'
+      const handler = vi.fn(async () => {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        currentRevision = 'r2'
+        return {
+          timer: {
+            id: 't1',
+            notePath: 'Projects/Note.md',
+            name: 'Test',
+            status: 'RUNNING' as const,
+            elapsedMs: 0,
+            baseElapsedMs: 0,
+            pausedOffsetMs: 0,
+          },
+          revision: 'r2',
+        }
+      })
+      const dispatcher = new ApplicationDispatcher(
+        { timer_start: commandHandler(handler) },
+        { revisionProvider: { getCurrentRevision: async () => currentRevision } },
+      )
+      const request = (requestId: string): CommandRequest<'timer_start'> => ({
+        protocolVersion: '1',
+        requestId,
+        actor: 'http',
+        command: 'timer_start',
+        input: { notePath: 'Projects/Note.md' },
+        expectedRevision: 'r1',
+        confirmation: CONFIRM,
+      })
+
+      const results = await Promise.all([dispatcher.dispatch(request('req-concurrent-1')), dispatcher.dispatch(request('req-concurrent-2'))])
+      expect(results.filter(result => result.ok)).toHaveLength(1)
+      expect(results.filter(result => !result.ok)).toHaveLength(1)
+      expect(handler).toHaveBeenCalledTimes(1)
     })
   })
 

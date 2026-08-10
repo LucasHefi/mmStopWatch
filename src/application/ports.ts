@@ -29,3 +29,7 @@ export interface IdempotencyStore {
   get(key: string): Promise<string | undefined>
   set(key: string, result: string): Promise<void>
 }
+
+export interface RevisionProvider {
+  getCurrentRevision(): Promise<string>
+}
