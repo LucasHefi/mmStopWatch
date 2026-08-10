@@ -131,6 +131,36 @@ describe('localhost control plane HTTP boundary', () => {
     })
   })
 
+  it('serves injected note_get handler through a validated path query', async () => {
+    let receivedPath = ''
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: {
+        note_get: commandHandler(async input => {
+          receivedPath = input.relativePath
+          return {
+            note: { relativePath: input.relativePath, name: 'Work', durationMs: 100, tags: ['dev'], hasFrontmatter: true },
+            revision: 'note-r1',
+          }
+        }),
+      },
+    })
+    servers.push(server)
+    const headers = { Authorization: `Bearer ${server.token}` }
+
+    const response = await fetch(`${server.url}/api/v1/notes?path=${encodeURIComponent('projects/work.md')}`, { headers })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      data: { note: { relativePath: 'projects/work.md', name: 'Work' }, revision: 'note-r1' },
+    })
+    expect(receivedPath).toBe('projects/work.md')
+
+    const unsafe = await fetch(`${server.url}/api/v1/notes?path=${encodeURIComponent('../escape.md')}`, { headers })
+    expect(unsafe.status).toBe(400)
+    await expect(unsafe.json()).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_REQUEST' } })
+  })
+
   it('does not advertise or dispatch injected mutating handlers', async () => {
     const server = await startHttpServer({
       token: 'test-token',

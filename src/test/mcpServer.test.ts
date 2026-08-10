@@ -284,6 +284,10 @@ describe('mmStopWatch MCP stdio contract', () => {
       token: 'test-token',
       handlers: {
         list_notes: commandHandler(async () => ({ notes: [], revision: 'notes-r1' })),
+        note_get: commandHandler(async input => ({
+          note: { relativePath: input.relativePath, name: 'Work', durationMs: 100, tags: ['dev'], hasFrontmatter: true },
+          revision: 'note-r1',
+        })),
         get_stats: commandHandler(async () => ({ totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 })),
         preview_report: commandHandler(async () => ({ format: 'markdown' as const, content: '# Report', truncated: false })),
       },
@@ -300,6 +304,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         'mmstopwatch_list_notes',
         'mmstopwatch_get_stats',
         'mmstopwatch_preview_report',
+        'mmstopwatch_note_get',
         'mmstopwatch_analytics_stats',
         'mmstopwatch_reports_preview',
       ])
@@ -311,10 +316,17 @@ describe('mmStopWatch MCP stdio contract', () => {
       const statsText = (stats as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(statsText)).toMatchObject({ ok: true, data: { totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 } })
 
+      const note = await handler(request('tools/call', {
+        name: 'mmstopwatch_note_get',
+        arguments: { relativePath: 'projects/work.md' },
+      }, 3))
+      const noteText = (note as { result: { content: [{ text: string }] } }).result.content[0].text
+      expect(JSON.parse(noteText)).toMatchObject({ ok: true, data: { note: { relativePath: 'projects/work.md', name: 'Work' }, revision: 'note-r1' } })
+
       const report = await handler(request('tools/call', {
         name: 'mmstopwatch_preview_report',
         arguments: { format: 'markdown' },
-      }, 3))
+      }, 4))
       const reportText = (report as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(reportText)).toMatchObject({ ok: true, data: { format: 'markdown', content: '# Report', truncated: false } })
     } finally {

@@ -13,6 +13,7 @@ import {
   type StatusDto,
 } from '../src/application/contracts'
 import { createSafeError } from '../src/application/errors'
+import { validateRelativeNotePath } from '../src/application/security/pathPolicy'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const packageJson = createRequire(`${process.cwd()}/tools/controlPlaneServer.ts`)('../package.json') as { version: string }
@@ -125,6 +126,20 @@ function routeRequest(url: URL, method: string, body: Record<string, unknown>): 
     return { protocolVersion: PROTOCOL_VERSION, requestId: requestIdValue, actor: 'http', command: 'capabilities', input: {} }
   }
   if (method === 'GET' && url.pathname === '/api/v1/notes') {
+    const rawPath = url.searchParams.get('path')
+    if (rawPath !== null) {
+      try {
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: requestIdValue,
+          actor: 'http',
+          command: 'note_get',
+          input: { relativePath: validateRelativeNotePath(rawPath) },
+        }
+      } catch (error) {
+        throw new RequestFailure(400, error instanceof Error ? error.message : 'Invalid note path')
+      }
+    }
     const rawLimit = url.searchParams.get('limit')
     const limit = rawLimit === null ? undefined : Number(rawLimit)
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {

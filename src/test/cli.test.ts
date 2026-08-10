@@ -102,6 +102,10 @@ describe('mmstopwatch CLI contract', () => {
           notesInput = input
           return { notes: [{ relativePath: 'work.md', name: 'work', durationMs: 120_000, tags: ['client'], hasFrontmatter: true }] }
         }),
+        note_get: commandHandler(async input => ({
+          note: { relativePath: input.relativePath, name: 'work', durationMs: 120_000, tags: ['client'], hasFrontmatter: true },
+          revision: 'note-r1',
+        })),
         get_stats: commandHandler(async input => {
           statsInput = input
           return { from: '2026-01-01', to: '2026-01-31', totalDurationMs: 120_000, sessionCount: 1, noteCount: 1 }
@@ -121,6 +125,10 @@ describe('mmstopwatch CLI contract', () => {
       expect(notes.code).toBe(0)
       expect(JSON.parse(notes.stdout)).toMatchObject({ ok: true, requestId: 'cli-notes-1', data: { notes: [{ relativePath: 'work.md' }] } })
       expect(notesInput).toEqual({ limit: 10, tags: ['client', 'internal'] })
+
+      const note = await runCli(['--json', '--request-id', 'cli-note-1', '--path', 'work.md', 'notes', 'get'], commonEnv)
+      expect(note.code).toBe(0)
+      expect(JSON.parse(note.stdout)).toMatchObject({ ok: true, requestId: 'cli-note-1', data: { note: { relativePath: 'work.md' }, revision: 'note-r1' } })
 
       const stats = await runCli(['--json', '--request-id', 'cli-stats-1', '--from', '2026-01-01', '--to', '2026-01-31', 'stats'], commonEnv)
       expect(stats.code).toBe(0)

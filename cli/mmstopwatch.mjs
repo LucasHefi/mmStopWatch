@@ -24,6 +24,7 @@ const ROUTES = Object.freeze({
   'status': { method: 'GET', path: '/api/v1/status' },
   'capabilities': { method: 'GET', path: '/api/v1/capabilities' },
   'notes list': { method: 'GET', path: '/api/v1/notes' },
+  'notes get': { method: 'GET', path: '/api/v1/notes' },
   'stats': { method: 'GET', path: '/api/v1/stats' },
   'report preview': { method: 'POST', path: '/api/v1/reports/preview' },
 })
@@ -55,6 +56,7 @@ Usage:
   mmstopwatch status
   mmstopwatch capabilities
   mmstopwatch notes list
+  mmstopwatch notes get --path PATH
   mmstopwatch stats
   mmstopwatch report preview
   mmstopwatch timers <list|start|pause|resume|stop|discard>
@@ -119,7 +121,7 @@ function parseArgs(argv) {
       const value = argv[++index]
       if (!value) throw new CliError('INVALID_REQUEST', '--config requires a path')
       options.configPath = value
-    } else if (arg === '--from' || arg === '--to' || arg === '--limit' || arg === '--cursor' || arg === '--query' || arg === '--format' || arg === '--tags') {
+    } else if (arg === '--from' || arg === '--to' || arg === '--limit' || arg === '--cursor' || arg === '--query' || arg === '--format' || arg === '--tags' || arg === '--path') {
       const key = arg.slice(2)
       const value = argv[++index]
       if (!value) throw new CliError('INVALID_REQUEST', `${arg} requires a value`)
@@ -199,6 +201,7 @@ function redactMessage(error) {
 function makeUrl(base, path, values) {
   const url = new URL(path, `${base.replace(/\/$/, '')}/`)
   if (path === '/api/v1/notes') {
+    if (values.path !== undefined) url.searchParams.set('path', values.path)
     for (const key of ['limit', 'cursor', 'query']) if (values[key] !== undefined) url.searchParams.set(key, values[key])
     if (values.tags) url.searchParams.set('tags', values.tags)
   }

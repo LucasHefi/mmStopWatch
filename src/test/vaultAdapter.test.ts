@@ -63,6 +63,21 @@ describe('VaultAdapter', () => {
     expect(readme!.hasFrontmatter).toBe(false)
   })
 
+  it('gets note metadata by a validated relative path without exposing vault paths', async () => {
+    const vault = await createTempVault()
+    await addNote(vault, 'proj/daily.md', '---\nTimework: 00:30:00\ntags: [dev]\n---\nbody')
+
+    const adapter = new VaultAdapter({ vaultPath: vault, frontmatterKey: 'Timework' })
+    await adapter.load()
+
+    const found = adapter.getNote({ relativePath: 'proj/daily.md' })
+    expect(found.note).toMatchObject({ relativePath: 'proj/daily.md', durationMs: 30 * 60_000, tags: ['dev'] })
+    expect(found.revision).toBeTruthy()
+    expect(adapter.getNote({ relativePath: 'missing.md' }).note).toBeUndefined()
+    expect(() => adapter.getNote({ relativePath: '../escape.md' })).toThrow()
+    expect(JSON.stringify(found)).not.toContain(vault)
+  })
+
   it('skips hidden directories, node_modules, and symlinks', async () => {
     const vault = await createTempVault()
     await addNote(vault, 'src/app.md', '---\nTimework: 01:00:00\n---\napp')

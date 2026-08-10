@@ -97,6 +97,7 @@ const TOOL_NAMES_BY_COMMAND: Record<string, string[]> = {
   status: ['mmstopwatch_status'],
   capabilities: ['mmstopwatch_capabilities'],
   list_notes: ['mmstopwatch_list_notes'],
+  note_get: ['mmstopwatch_note_get'],
   get_stats: ['mmstopwatch_get_stats', 'mmstopwatch_analytics_stats'],
   preview_report: ['mmstopwatch_preview_report', 'mmstopwatch_reports_preview'],
 }
@@ -129,6 +130,7 @@ const TOOL_ROUTES: Record<string, ToolRoute> = {
   mmstopwatch_status: { method: 'GET', path: '/api/v1/status' },
   mmstopwatch_capabilities: { method: 'GET', path: '/api/v1/capabilities' },
   mmstopwatch_list_notes: { method: 'GET', path: '/api/v1/notes' },
+  mmstopwatch_note_get: { method: 'GET', path: '/api/v1/notes' },
   mmstopwatch_get_stats: { method: 'GET', path: '/api/v1/stats' },
   mmstopwatch_preview_report: { method: 'POST', path: '/api/v1/reports/preview' },
   mmstopwatch_analytics_stats: { method: 'GET', path: '/api/v1/stats' },
@@ -214,6 +216,8 @@ function validateToolArguments(name: string, args: unknown): string | undefined 
 function buildRequestUrl(baseUrl: string, path: string, args: Record<string, unknown>): string {
   const url = new URL(path, `${baseUrl.replace(/\/$/, '')}/`)
   if (path === '/api/v1/notes') {
+    const relativePath = args.relativePath
+    if (typeof relativePath === 'string') url.searchParams.set('path', relativePath)
     for (const key of ['limit', 'cursor', 'query']) {
       const value = args[key]
       if (typeof value === 'string' || typeof value === 'number') url.searchParams.set(key, String(value))

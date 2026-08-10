@@ -3,7 +3,8 @@ import { lstat } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { parseFrontmatter, parseTimeToMs } from '../src/services/frontmatterParser'
-import type { NoteListInput, NoteDto, NoteListOutput } from '../src/application/contracts'
+import type { NoteGetInput, NoteGetOutput, NoteListInput, NoteDto, NoteListOutput } from '../src/application/contracts'
+import { validateRelativeNotePath } from '../src/application/security/pathPolicy'
 import { validateAbsoluteVaultPath } from '../src/services/pathSecurity'
 
 const DEFAULT_LIMIT = 20
@@ -132,7 +133,7 @@ export class VaultAdapter {
             durationMs = result.ms
           }
 
-          const relPath = relative(resolvedRoot, fullPath)
+          const relPath = relative(resolvedRoot, fullPath).replace(/\\/g, '/')
           const noteName = name.replace(/\.md$/i, '')
 
           const tags = Array.isArray(parsed.data.tags)
@@ -188,6 +189,14 @@ export class VaultAdapter {
     return {
       notes: slice,
       ...(start + limit < total ? { nextCursor: String(start + slice.length) } : {}),
+      revision: this.revision,
+    }
+  }
+
+  getNote(input: NoteGetInput): NoteGetOutput {
+    const relativePath = validateRelativeNotePath(input.relativePath)
+    return {
+      note: this.notes.find(note => note.relativePath === relativePath),
       revision: this.revision,
     }
   }
