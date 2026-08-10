@@ -87,7 +87,7 @@ async function stopControlPlane(child: ChildProcess): Promise<void> {
   })
 }
 
-function runMcpSession(baseUrl: string): Promise<{ code: number; stdout: string; stderr: string }> {
+function runMcpSession(baseUrl: string, token = 'e2e-control-plane-token'): Promise<{ code: number; stdout: string; stderr: string }> {
   const isWindows = process.platform === 'win32'
   const executable = isWindows ? (process.env.ComSpec || process.env.COMSPEC || 'cmd.exe') : 'npm'
   const args = isWindows
@@ -98,7 +98,7 @@ function runMcpSession(baseUrl: string): Promise<{ code: number; stdout: string;
     env: {
       ...process.env,
       MMSTOPWATCH_CONTROL_PLANE_URL: baseUrl,
-      MMSTOPWATCH_CONTROL_PLANE_TOKEN: 'e2e-control-plane-token',
+      MMSTOPWATCH_CONTROL_PLANE_TOKEN: token,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
@@ -213,6 +213,35 @@ describe('control-plane-http wrapper', () => {
       const text = frame.result?.content?.[0]?.text
       expect(text).toBeDefined()
       expect(JSON.parse(text || '{}')).toMatchObject({ ok: true })
+    }
+  })
+
+  it('redacts a real MCP process auth failure and keeps the JSON-RPC session safe', async () => {
+    const vault = await mkdtemp(join(tmpdir(), 'mmstopwatch-mcp-auth-e2e-'))
+    tempDirs.push(vault)
+    await mkdir(join(vault, '.mmST-alice'))
+    await writeFile(join(vault, '.mmST-alice', 'config.json'), JSON.stringify({
+      activeProfileId: 'vault-a',
+      profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice' }],
+    }))
+
+    const { ready } = startControlPlane(vault)
+    const baseUrl = await ready
+    const invalidToken = 'invalid-e2e-token-must-not-leak'
+    const session = await runMcpSession(baseUrl, invalidToken)
+    expect(session.code).toBe(0)
+    expect(session.stderr).toContain(`mmStopWatch MCP stdio adapter for ${baseUrl}`)
+    expect(session.stderr).not.toContain(invalidToken)
+
+    const frames = session.stdout.trim().split('\n').map(line => JSON.parse(line) as { id: number; result?: { content?: Array<{ text: string }>; isError?: boolean } })
+    expect(frames).toHaveLength(5)
+    for (const frame of frames.slice(2)) {
+      expect(frame.result?.isError).toBe(true)
+      const text = frame.result?.content?.[0]?.text
+      expect(text).toBeDefined()
+      const payload = JSON.parse(text || '{}') as { ok?: boolean; error?: { code?: string } }
+      expect(payload).toMatchObject({ ok: false, error: { code: 'UNAUTHORIZED' } })
+      expect(text).not.toContain(invalidToken)
     }
   })
 })
