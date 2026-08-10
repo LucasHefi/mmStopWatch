@@ -94,4 +94,26 @@ describe('ProfileAdapter', () => {
     expect(JSON.stringify(result)).not.toContain('/secret')
     expect(JSON.stringify(result)).not.toContain('token')
   })
+
+  it('returns notification capability metadata without the configured sound path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mmstopwatch-profile-'))
+    roots.push(root)
+    await mkdir(join(root, '.mmST-alice'))
+    await writeFile(join(root, '.mmST-alice', 'config.json'), JSON.stringify({
+      notifications: { enabled: true, intervalMinutes: 30 },
+      timerLimitAlert: { enabled: true, soundEnabled: false, notificationsEnabled: true, showOverlay: true, soundPath: '/secret/sound.wav' },
+    }))
+
+    const result = await new ProfileAdapter(root).getNotificationStatus('alice')
+
+    expect(result).toEqual({ notifications: {
+      enabled: true,
+      intervalMinutes: 30,
+      soundEnabled: false,
+      notificationsEnabled: true,
+      showOverlay: true,
+    } })
+    expect(JSON.stringify(result)).not.toContain('/secret')
+    expect(JSON.stringify(result)).not.toContain('soundPath')
+  })
 })

@@ -291,6 +291,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         timer_list: commandHandler(async () => ({ timers: [], revision: 'timer-r1' })),
         profile_list: commandHandler(async () => ({ profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }], activeProfileId: 'vault-a' })),
         config_get: commandHandler(async () => ({ config: { profileCount: 1, frontmatterKey: 'Timework', notificationsEnabled: true } })),
+        notification_status: commandHandler(async () => ({ notifications: { enabled: true, intervalMinutes: 30, soundEnabled: false, notificationsEnabled: true, showOverlay: true } })),
         get_stats: commandHandler(async () => ({ totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 })),
         preview_report: commandHandler(async () => ({ format: 'markdown' as const, content: '# Report', truncated: false })),
       },
@@ -313,6 +314,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         'mmstopwatch_config_get',
         'mmstopwatch_analytics_stats',
         'mmstopwatch_reports_preview',
+        'mmstopwatch_notification_status',
       ])
 
       const stats = await handler(request('tools/call', {
@@ -350,10 +352,17 @@ describe('mmStopWatch MCP stdio contract', () => {
       const configText = (config as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(configText)).toMatchObject({ ok: true, data: { config: { profileCount: 1, frontmatterKey: 'Timework', notificationsEnabled: true } } })
 
+      const notifications = await handler(request('tools/call', {
+        name: 'mmstopwatch_notification_status',
+        arguments: {},
+      }, 7))
+      const notificationsText = (notifications as { result: { content: [{ text: string }] } }).result.content[0].text
+      expect(JSON.parse(notificationsText)).toMatchObject({ ok: true, data: { notifications: { enabled: true, intervalMinutes: 30 } } })
+
       const report = await handler(request('tools/call', {
         name: 'mmstopwatch_preview_report',
         arguments: { format: 'markdown' },
-      }, 7))
+      }, 8))
       const reportText = (report as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(reportText)).toMatchObject({ ok: true, data: { format: 'markdown', content: '# Report', truncated: false } })
     } finally {

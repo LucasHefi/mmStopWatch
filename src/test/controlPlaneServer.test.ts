@@ -213,6 +213,20 @@ describe('localhost control plane HTTP boundary', () => {
     expect(JSON.stringify(payload)).not.toContain('token')
   })
 
+  it('serves an injected read-only notification_status handler without exposing sound paths', async () => {
+    const notifications = { enabled: true, intervalMinutes: 30, soundEnabled: false, notificationsEnabled: true, showOverlay: true }
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: { notification_status: commandHandler(async () => ({ notifications })) },
+    })
+    servers.push(server)
+    const response = await fetch(`${server.url}/api/v1/notifications`, { headers: { Authorization: `Bearer ${server.token}` } })
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { data: { notifications: Record<string, unknown> } }
+    expect(payload.data.notifications).toEqual(notifications)
+    expect(JSON.stringify(payload)).not.toContain('soundPath')
+  })
+
   it('does not advertise or dispatch injected mutating handlers', async () => {
     const server = await startHttpServer({
       token: 'test-token',

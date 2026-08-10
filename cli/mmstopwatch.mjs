@@ -26,6 +26,7 @@ const ROUTES = Object.freeze({
   'timers list': { method: 'GET', path: '/api/v1/timers' },
   'profiles list': { method: 'GET', path: '/api/v1/profiles' },
   'config show': { method: 'GET', path: '/api/v1/config' },
+  'notifications status': { method: 'GET', path: '/api/v1/notifications' },
   'notes list': { method: 'GET', path: '/api/v1/notes' },
   'notes get': { method: 'GET', path: '/api/v1/notes' },
   'stats': { method: 'GET', path: '/api/v1/stats' },
@@ -263,7 +264,7 @@ async function callApi(route, config, options, requestId) {
 }
 
 function commandKey(command) {
-  if (command[0] === 'notes' || command[0] === 'report' || command[0] === 'timers' || command[0] === 'profiles' || command[0] === 'config') return command.slice(0, 2).join(' ')
+  if (command[0] === 'notes' || command[0] === 'report' || command[0] === 'timers' || command[0] === 'profiles' || command[0] === 'config' || command[0] === 'notifications') return command.slice(0, 2).join(' ')
   return command[0] || ''
 }
 

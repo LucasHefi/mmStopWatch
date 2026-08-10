@@ -20,6 +20,7 @@ export interface NoteListInput {
 
 export type ProfileListInput = Record<string, never>
 export type ConfigGetInput = Record<string, never>
+export type NotificationStatusInput = Record<string, never>
 
 export interface NoteGetInput {
   relativePath: string
@@ -98,6 +99,7 @@ export interface CommandInput {
   note_delete: NoteDeleteInput
   profile_list: ProfileListInput
   config_get: ConfigGetInput
+  notification_status: NotificationStatusInput
 }
 
 export const CONFIRM = 'I confirm this mutating operation.' as const
@@ -212,6 +214,18 @@ export interface ConfigGetOutput {
   config: ConfigMetadataDto
 }
 
+export interface NotificationStatusDto {
+  enabled?: boolean
+  intervalMinutes?: number
+  soundEnabled?: boolean
+  notificationsEnabled?: boolean
+  showOverlay?: boolean
+}
+
+export interface NotificationStatusOutput {
+  notifications: NotificationStatusDto
+}
+
 export interface StatsDto {
   from?: string
   to?: string
@@ -245,6 +259,7 @@ export interface CommandOutput {
   note_delete: NoteDeleteOutput
   profile_list: ProfileListOutput
   config_get: ConfigGetOutput
+  notification_status: NotificationStatusOutput
 }
 
 export interface CommandContext {
@@ -285,7 +300,7 @@ export type CommandResult<T> = SuccessEnvelope<T> | ErrorEnvelope
 export type CommandSuccessEnvelope<T> = SuccessEnvelope<T>
 export type CommandErrorEnvelope = ErrorEnvelope
 
-export type CommandDomain = 'status' | 'timer' | 'note' | 'report' | 'profile' | 'config'
+export type CommandDomain = 'status' | 'timer' | 'note' | 'report' | 'profile' | 'config' | 'notification'
 
 export interface CommandDefinition {
   domain: CommandDomain
@@ -311,6 +326,7 @@ export const COMMAND_REGISTRY = {
   note_delete: { domain: 'note', mutating: true },
   profile_list: { domain: 'profile', mutating: false },
   config_get: { domain: 'config', mutating: false },
+  notification_status: { domain: 'notification', mutating: false },
 } as const satisfies Record<CommandName, CommandDefinition>
 
 export type RegisteredCommandName = keyof typeof COMMAND_REGISTRY

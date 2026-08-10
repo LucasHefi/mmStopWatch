@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import type { ConfigGetOutput, ConfigMetadataDto, ProfileDto, ProfileListOutput } from '../src/application/contracts'
+import type { ConfigGetOutput, ConfigMetadataDto, NotificationStatusDto, NotificationStatusOutput, ProfileDto, ProfileListOutput } from '../src/application/contracts'
 import { validateAbsoluteVaultPath, validateProfileKey } from '../src/services/pathSecurity'
 
 interface StoredProfile {
@@ -85,5 +85,20 @@ export class ProfileAdapter {
       metadata.notificationsEnabled = source.notifications.enabled
     }
     return { config: metadata }
+  }
+
+  async getNotificationStatus(nick: string): Promise<NotificationStatusOutput> {
+    const root = resolve(validateAbsoluteVaultPath(this.vaultPath))
+    const safeNick = validateProfileKey(nick)
+    const config = JSON.parse(await readFile(join(root, `.mmST-${safeNick}`, 'config.json'), 'utf8')) as Record<string, unknown>
+    const notifications: NotificationStatusDto = {}
+    const configured = isRecord(config.notifications) ? config.notifications : undefined
+    const timerLimitAlert = isRecord(config.timerLimitAlert) ? config.timerLimitAlert : undefined
+    if (typeof configured?.enabled === 'boolean') notifications.enabled = configured.enabled
+    if (typeof configured?.intervalMinutes === 'number' && Number.isFinite(configured.intervalMinutes)) notifications.intervalMinutes = configured.intervalMinutes
+    if (typeof timerLimitAlert?.soundEnabled === 'boolean') notifications.soundEnabled = timerLimitAlert.soundEnabled
+    if (typeof timerLimitAlert?.notificationsEnabled === 'boolean') notifications.notificationsEnabled = timerLimitAlert.notificationsEnabled
+    if (typeof timerLimitAlert?.showOverlay === 'boolean') notifications.showOverlay = timerLimitAlert.showOverlay
+    return { notifications }
   }
 }

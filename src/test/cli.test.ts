@@ -109,6 +109,7 @@ describe('mmstopwatch CLI contract', () => {
         timer_list: commandHandler(async () => ({ timers: [], revision: 'timer-r1' })),
         profile_list: commandHandler(async () => ({ profiles: [{ id: 'vault-a', name: 'Work', nick: 'alice', active: true }], activeProfileId: 'vault-a' })),
         config_get: commandHandler(async () => ({ config: { profileCount: 1, frontmatterKey: 'Timework', notificationsEnabled: true } })),
+        notification_status: commandHandler(async () => ({ notifications: { enabled: true, intervalMinutes: 30, soundEnabled: false, notificationsEnabled: true, showOverlay: true } })),
         get_stats: commandHandler(async input => {
           statsInput = input
           return { from: '2026-01-01', to: '2026-01-31', totalDurationMs: 120_000, sessionCount: 1, noteCount: 1 }
@@ -144,6 +145,10 @@ describe('mmstopwatch CLI contract', () => {
       const config = await runCli(['--json', '--request-id', 'cli-config-1', 'config', 'show'], commonEnv)
       expect(config.code).toBe(0)
       expect(JSON.parse(config.stdout)).toMatchObject({ ok: true, requestId: 'cli-config-1', data: { config: { profileCount: 1, frontmatterKey: 'Timework', notificationsEnabled: true } } })
+
+      const notifications = await runCli(['--json', '--request-id', 'cli-notifications-1', 'notifications', 'status'], commonEnv)
+      expect(notifications.code).toBe(0)
+      expect(JSON.parse(notifications.stdout)).toMatchObject({ ok: true, requestId: 'cli-notifications-1', data: { notifications: { enabled: true, intervalMinutes: 30 } } })
 
       const stats = await runCli(['--json', '--request-id', 'cli-stats-1', '--from', '2026-01-01', '--to', '2026-01-31', 'stats'], commonEnv)
       expect(stats.code).toBe(0)
