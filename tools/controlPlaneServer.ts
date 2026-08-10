@@ -131,6 +131,9 @@ function routeRequest(url: URL, method: string, body: Record<string, unknown>): 
   if (method === 'GET' && url.pathname === '/api/v1/profiles') {
     return { protocolVersion: PROTOCOL_VERSION, requestId: requestIdValue, actor: 'http', command: 'profile_list', input: {} }
   }
+  if (method === 'GET' && url.pathname === '/api/v1/config') {
+    return { protocolVersion: PROTOCOL_VERSION, requestId: requestIdValue, actor: 'http', command: 'config_get', input: {} }
+  }
   if (method === 'GET' && url.pathname === '/api/v1/notes') {
     const rawPath = url.searchParams.get('path')
     if (rawPath !== null) {

@@ -49,6 +49,8 @@ async function main(): Promise<void> {
 
       const nick = (process.env.MMSTOPWATCH_NICK || '').trim()
       if (nick) {
+        injectedHandlers.config_get = commandHandler(async () => profileAdapter.getConfig(nick))
+
         const activityAdapter = new ActivityAdapter(resolvedPath, nick)
         await activityAdapter.load()
 

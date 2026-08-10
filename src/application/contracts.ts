@@ -19,6 +19,7 @@ export interface NoteListInput {
 }
 
 export type ProfileListInput = Record<string, never>
+export type ConfigGetInput = Record<string, never>
 
 export interface NoteGetInput {
   relativePath: string
@@ -96,6 +97,7 @@ export interface CommandInput {
   note_update: NoteUpdateInput
   note_delete: NoteDeleteInput
   profile_list: ProfileListInput
+  config_get: ConfigGetInput
 }
 
 export const CONFIRM = 'I confirm this mutating operation.' as const
@@ -194,6 +196,22 @@ export interface ProfileListOutput {
   activeProfileId?: string
 }
 
+export interface ConfigMetadataDto {
+  activeProfileId?: string
+  profileCount: number
+  frontmatterKey?: string
+  timeEstimateKey?: string
+  timeFormat?: string
+  language?: string
+  dailyGoalMs?: number
+  autoRefreshInterval?: number
+  notificationsEnabled?: boolean
+}
+
+export interface ConfigGetOutput {
+  config: ConfigMetadataDto
+}
+
 export interface StatsDto {
   from?: string
   to?: string
@@ -226,6 +244,7 @@ export interface CommandOutput {
   note_update: NoteCommandOutput
   note_delete: NoteDeleteOutput
   profile_list: ProfileListOutput
+  config_get: ConfigGetOutput
 }
 
 export interface CommandContext {
@@ -266,7 +285,7 @@ export type CommandResult<T> = SuccessEnvelope<T> | ErrorEnvelope
 export type CommandSuccessEnvelope<T> = SuccessEnvelope<T>
 export type CommandErrorEnvelope = ErrorEnvelope
 
-export type CommandDomain = 'status' | 'timer' | 'note' | 'report' | 'profile'
+export type CommandDomain = 'status' | 'timer' | 'note' | 'report' | 'profile' | 'config'
 
 export interface CommandDefinition {
   domain: CommandDomain
@@ -291,6 +310,7 @@ export const COMMAND_REGISTRY = {
   note_update: { domain: 'note', mutating: true },
   note_delete: { domain: 'note', mutating: true },
   profile_list: { domain: 'profile', mutating: false },
+  config_get: { domain: 'config', mutating: false },
 } as const satisfies Record<CommandName, CommandDefinition>
 
 export type RegisteredCommandName = keyof typeof COMMAND_REGISTRY

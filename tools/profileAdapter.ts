@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import type { ProfileDto, ProfileListOutput } from '../src/application/contracts'
+import type { ConfigGetOutput, ConfigMetadataDto, ProfileDto, ProfileListOutput } from '../src/application/contracts'
 import { validateAbsoluteVaultPath, validateProfileKey } from '../src/services/pathSecurity'
 
 interface StoredProfile {
@@ -12,6 +12,10 @@ interface StoredProfile {
 interface StoredConfig {
   activeProfileId?: unknown
   profiles?: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function safeProfile(value: unknown): ProfileDto | undefined {
@@ -60,5 +64,26 @@ export class ProfileAdapter {
       profiles: [...profiles.values()].map(profile => ({ ...profile, active: profile.id === active })),
       ...(active ? { activeProfileId: active } : {}),
     }
+  }
+
+  async getConfig(nick: string): Promise<ConfigGetOutput> {
+    const root = resolve(validateAbsoluteVaultPath(this.vaultPath))
+    const safeNick = validateProfileKey(nick)
+    const config = JSON.parse(await readFile(join(root, `.mmST-${safeNick}`, 'config.json'), 'utf8')) as StoredConfig
+    const source = config as Record<string, unknown>
+    const metadata: ConfigMetadataDto = {
+      profileCount: Array.isArray(config.profiles) ? config.profiles.length : 0,
+    }
+    if (typeof source.activeProfileId === 'string' && source.activeProfileId.trim()) metadata.activeProfileId = source.activeProfileId.trim()
+    for (const key of ['frontmatterKey', 'timeEstimateKey', 'timeFormat', 'language'] as const) {
+      if (typeof source[key] === 'string' && source[key].trim()) metadata[key] = source[key].trim()
+    }
+    for (const key of ['dailyGoalMs', 'autoRefreshInterval'] as const) {
+      if (typeof source[key] === 'number' && Number.isFinite(source[key])) metadata[key] = source[key]
+    }
+    if (isRecord(source.notifications) && typeof source.notifications.enabled === 'boolean') {
+      metadata.notificationsEnabled = source.notifications.enabled
+    }
+    return { config: metadata }
   }
 }

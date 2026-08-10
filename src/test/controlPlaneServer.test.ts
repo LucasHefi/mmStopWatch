@@ -198,6 +198,21 @@ describe('localhost control plane HTTP boundary', () => {
     expect(JSON.stringify(payload)).not.toContain('notesFolder')
   })
 
+  it('serves an injected read-only config_get handler without exposing secrets', async () => {
+    const config = { profileCount: 1, frontmatterKey: 'Timework', notificationsEnabled: true }
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: { config_get: commandHandler(async () => ({ config })) },
+    })
+    servers.push(server)
+    const response = await fetch(`${server.url}/api/v1/config`, { headers: { Authorization: `Bearer ${server.token}` } })
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { data: { config: Record<string, unknown> } }
+    expect(payload.data.config).toEqual(config)
+    expect(JSON.stringify(payload)).not.toContain('notesFolder')
+    expect(JSON.stringify(payload)).not.toContain('token')
+  })
+
   it('does not advertise or dispatch injected mutating handlers', async () => {
     const server = await startHttpServer({
       token: 'test-token',

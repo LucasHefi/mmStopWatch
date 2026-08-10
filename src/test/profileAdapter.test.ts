@@ -58,4 +58,40 @@ describe('ProfileAdapter', () => {
       profiles: [{ id: 'vault-good', name: 'Good', nick: 'good', active: false }],
     })
   })
+
+  it('returns safe configuration metadata for the selected profile', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mmstopwatch-profile-'))
+    roots.push(root)
+    await mkdir(join(root, '.mmST-alice'))
+    await writeFile(join(root, '.mmST-alice', 'config.json'), JSON.stringify({
+      activeProfileId: 'vault-a',
+      profiles: [{ id: 'vault-a', name: 'Work' }],
+      notesFolder: '/secret/work',
+      frontmatterKey: 'Timework',
+      timeEstimateKey: 'timeEstimate',
+      timeFormat: 'HH:mm:ss',
+      language: 'cs',
+      dailyGoalMs: 28_800_000,
+      autoRefreshInterval: 10,
+      notifications: { enabled: true, intervalMinutes: 60 },
+      timerLimitAlert: { soundPath: '/secret/sound.wav' },
+      token: 'must-not-leak',
+    }))
+
+    const result = await new ProfileAdapter(root).getConfig('alice')
+
+    expect(result).toEqual({ config: {
+      activeProfileId: 'vault-a',
+      profileCount: 1,
+      frontmatterKey: 'Timework',
+      timeEstimateKey: 'timeEstimate',
+      timeFormat: 'HH:mm:ss',
+      language: 'cs',
+      dailyGoalMs: 28_800_000,
+      autoRefreshInterval: 10,
+      notificationsEnabled: true,
+    } })
+    expect(JSON.stringify(result)).not.toContain('/secret')
+    expect(JSON.stringify(result)).not.toContain('token')
+  })
 })
