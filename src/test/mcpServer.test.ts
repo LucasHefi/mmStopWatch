@@ -13,6 +13,7 @@ import {
   type McpToolDefinition,
 } from '../../tools/mcp-server'
 import { startHttpServer } from '../../tools/controlPlaneServer'
+import { commandHandler } from '../../src/application/dispatcher'
 
 function request(method: string, params: Record<string, unknown> = {}, id: string | number = 1): McpJsonRpcRequest {
   return { jsonrpc: '2.0', id, method, params }
@@ -273,6 +274,49 @@ describe('mmStopWatch MCP stdio contract', () => {
       })
       const text = (result as { result: { content: [{ text: string }] } }).result.content[0].text
       expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.3', ready: true } })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('discovers and calls runtime read tools through the real localhost control plane', async () => {
+    const server = await startHttpServer({
+      token: 'test-token',
+      handlers: {
+        list_notes: commandHandler(async () => ({ notes: [], revision: 'notes-r1' })),
+        get_stats: commandHandler(async () => ({ totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 })),
+        preview_report: commandHandler(async () => ({ format: 'markdown' as const, content: '# Report', truncated: false })),
+      },
+    })
+    try {
+      const handler = createMcpRequestHandler({ apiBaseUrl: server.url, token: server.token, retryCount: 0 })
+      await initialize(handler)
+
+      const discovery = await handler(request('tools/list', {}, 1))
+      const tools = (discovery as { result: { tools: McpToolDefinition[] } }).result.tools
+      expect(tools.map(toolDefinition => toolDefinition.name)).toEqual([
+        'mmstopwatch_status',
+        'mmstopwatch_capabilities',
+        'mmstopwatch_list_notes',
+        'mmstopwatch_get_stats',
+        'mmstopwatch_preview_report',
+        'mmstopwatch_analytics_stats',
+        'mmstopwatch_reports_preview',
+      ])
+
+      const stats = await handler(request('tools/call', {
+        name: 'mmstopwatch_get_stats',
+        arguments: { from: '2026-01-01T00:00:00.000Z' },
+      }, 2))
+      const statsText = (stats as { result: { content: [{ text: string }] } }).result.content[0].text
+      expect(JSON.parse(statsText)).toMatchObject({ ok: true, data: { totalDurationMs: 3_600_000, sessionCount: 1, noteCount: 1 } })
+
+      const report = await handler(request('tools/call', {
+        name: 'mmstopwatch_preview_report',
+        arguments: { format: 'markdown' },
+      }, 3))
+      const reportText = (report as { result: { content: [{ text: string }] } }).result.content[0].text
+      expect(JSON.parse(reportText)).toMatchObject({ ok: true, data: { format: 'markdown', content: '# Report', truncated: false } })
     } finally {
       await server.close()
     }
