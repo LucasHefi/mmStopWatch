@@ -114,6 +114,7 @@ jobs:
         with:
           name: mmStopWatch-${{ matrix.platform }}
           path: src-tauri/target/release/bundle
+          retention-days: 7
           if-no-files-found: error
 
   release:
