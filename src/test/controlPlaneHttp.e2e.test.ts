@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -75,6 +75,10 @@ async function stopControlPlane(child: ChildProcess): Promise<void> {
     } catch {
       child.kill('SIGTERM')
     }
+  } else if (child.pid) {
+    await new Promise<void>(resolve => {
+      execFile('taskkill', ['/pid', String(child.pid), '/t', '/f'], () => resolve())
+    })
   } else {
     child.kill()
   }

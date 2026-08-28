@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, writeFile, symlink, rm, chmod } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { VaultAdapter, parseLimit } from '../../tools/vaultAdapter'
 
@@ -22,18 +22,14 @@ async function createTempVault(): Promise<string> {
 
 async function addNote(vaultRoot: string, relPath: string, content: string): Promise<void> {
   const fullPath = join(vaultRoot, relPath)
-  const dir = fullPath.substring(0, fullPath.lastIndexOf('/'))
-  await mkdir(dir, { recursive: true })
+  await mkdir(dirname(fullPath), { recursive: true })
   await writeFile(fullPath, content)
 }
 
 async function addSymlink(vaultRoot: string, targetRel: string, linkPath: string): Promise<void> {
   const target = join(vaultRoot, targetRel)
   const link = join(vaultRoot, linkPath)
-  const slashIndex = link.lastIndexOf('/')
-  if (slashIndex > 0) {
-    await mkdir(link.substring(0, slashIndex), { recursive: true })
-  }
+  await mkdir(dirname(link), { recursive: true })
   await symlink(target, link)
 }
 
