@@ -297,7 +297,7 @@ describe('VaultAdapter', () => {
     await expect(adapter.load()).rejects.toThrow()
   })
 
-  it('skips unreadable child directories instead of misclassifying them as root failure', async () => {
+  it.skipIf(process.platform === 'win32')('skips unreadable child directories instead of misclassifying them as root failure', async () => {
     const vault = await createTempVault()
     await addNote(vault, 'valid/note.md', '---\nTimework: 01:00:00\n---\nok')
     const lockedDir = join(vault, 'valid', 'locked')
