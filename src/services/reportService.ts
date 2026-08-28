@@ -1,6 +1,7 @@
 import type { ActivityEntry, Session } from '../types/session'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { formatMs } from './stats'
+import { resolveVaultMarkdownPath } from './pathSecurity'
+import { writeTextFileAtomically } from './safeFileWriter'
 
 function toLocalDateStr(ts: number): string {
   const d = new Date(ts)
@@ -170,10 +171,11 @@ export async function saveReportToVault(
   const now = new Date()
   const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const filename = `mmST-${type}-report-${dateStr}.md`
-  const filePath = `${notesFolder}/${filename}`
+  let filePath: string
 
   try {
-    await writeTextFile(filePath, content)
+    filePath = resolveVaultMarkdownPath(notesFolder, filename)
+    await writeTextFileAtomically(filePath, content)
     return filePath
   } catch (e) {
     console.error(`Failed to save ${type} report:`, e)

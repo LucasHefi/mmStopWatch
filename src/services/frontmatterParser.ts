@@ -122,10 +122,12 @@ export function parseTimeToMs(timeStr: string): { ms: number; error?: string } {
       return { ms: 0, error: 'Invalid time format' }
     }
     const nums = parts.map(Number)
-    if (nums.some(n => n < 0)) return { ms: 0, error: 'Negative time not allowed' }
+    if (nums.some(n => !Number.isFinite(n) || n < 0)) return { ms: 0, error: 'Invalid time format' }
+    if (parts.length > 1 && nums[nums.length - 1] > 59) return { ms: 0, error: 'Invalid time format' }
+    if (parts.length > 2 && nums[1] > 59) return { ms: 0, error: 'Invalid time format' }
     return { ms: ((nums[0] || 0) * 3600 + (nums[1] || 0) * 60 + (nums[2] || 0)) * 1000 }
   }
   const num = Number(trimmed)
-  if (isNaN(num) || num < 0) return { ms: 0, error: 'Invalid time format' }
+  if (!Number.isFinite(num) || num < 0) return { ms: 0, error: 'Invalid time format' }
   return { ms: num * 1000 }
 }

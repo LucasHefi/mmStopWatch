@@ -18,8 +18,10 @@ describe('Tauri filesystem capability', () => {
 
     expect(csp).not.toBeNull()
     expect(csp['default-src']).toContain("'self'")
-    expect(csp['connect-src']).toBe('ipc: http://ipc.localhost')
-    expect(JSON.stringify(csp)).not.toContain('https:')
+    expect(csp['connect-src']).toContain('ipc: http://ipc.localhost')
+    expect(csp['connect-src']).toContain('https://mediamaker.cz')
+    expect(tauriConfig.bundle.createUpdaterArtifacts).toBe(true)
+    expect(tauriConfig.plugins.updater.endpoints[0]).toBe('https://mediamaker.cz/mmstopwatch/release/latest.json')
   })
 
   it('exposes hidden profile directories inside the runtime-selected vault', () => {

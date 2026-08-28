@@ -99,11 +99,11 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
         ) : (
           <div className="flex items-center gap-1">
             {PRESETS.slice(0, 4).map(p => (
-              <button key={p} onClick={() => applyPreset(p)} className="text-xs px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-500 hover:text-zinc-300">
+              <button key={p} type="button" aria-label={`Set estimate ${p} minutes`} onClick={() => applyPreset(p)} className="text-xs px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-500 hover:text-zinc-300">
                 {p}m
               </button>
             ))}
-            <button onClick={openEditor} className="text-xs px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-500 hover:text-zinc-300">
+            <button type="button" aria-label="Edit estimate" onClick={openEditor} className="text-xs px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-500 hover:text-zinc-300">
               <Pencil size={10} />
             </button>
           </div>
@@ -121,8 +121,8 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
                 placeholder="min"
                 className="w-16 bg-zinc-950 px-2 py-0.5 rounded text-xs focus:ring-1 focus:ring-zinc-700"
               />
-              <button onClick={saveEdit} className="text-zinc-400 hover:text-white"><Check size={12} /></button>
-              <button onClick={() => setEditing(false)} className="text-zinc-400 hover:text-white"><X size={12} /></button>
+              <button type="button" onClick={saveEdit} aria-label={t('save')} className="text-zinc-400 hover:text-white"><Check size={12} /></button>
+              <button type="button" onClick={() => setEditing(false)} aria-label={t('close')} className="text-zinc-400 hover:text-white"><X size={12} /></button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -130,6 +130,8 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
       <td className="py-2 pr-3">
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
+            type="button"
+            aria-label={currentTimer?.status === 'RUNNING' ? t('pause') : t('start')}
             onClick={handlePlayPause}
             disabled={isSaving}
             className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
@@ -138,6 +140,8 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
             {currentTimer?.status === 'RUNNING' ? <Pause size={14} /> : <Play size={14} />}
           </button>
           <button
+            type="button"
+            aria-label={t('save')}
             onClick={handleSave}
             disabled={isSaving}
             className="p-1.5 hover:bg-red-500/20 rounded text-zinc-400 hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-wait"
@@ -146,6 +150,8 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
             <Save size={14} />
           </button>
           <button
+            type="button"
+            aria-label={t('delete')}
             onClick={handleDiscard}
             disabled={isSaving}
             className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors"
@@ -154,7 +160,7 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
             <X size={14} />
           </button>
           {timeEstimate && (
-            <button onClick={removeEstimate} className="p-1.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-zinc-300 transition-colors" title={t('removeEstimate')}>
+            <button type="button" aria-label={t('removeEstimate')} onClick={removeEstimate} className="p-1.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-zinc-300 transition-colors" title={t('removeEstimate')}>
               <Timer size={14} />
             </button>
           )}

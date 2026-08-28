@@ -41,7 +41,7 @@ export default function GoalsTab() {
           <input type="number" value={customGoal} onChange={e => setCustomGoal(e.target.value)} className="flex-1 bg-zinc-950 px-3 py-2 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
           <span className="flex items-center text-sm text-zinc-400">min</span>
         </div>
-        <button onClick={saveGoal} className="mt-2 text-xs px-3 py-1 bg-zinc-800 rounded">{t('save')}</button>
+        <button type="button" onClick={saveGoal} className="mt-2 text-xs px-3 py-1 bg-zinc-800 rounded">{t('save')}</button>
         <div className="text-xs mt-1 text-zinc-500">{mdConfig.dailyGoalMs ? `${mdConfig.dailyGoalMs / 60000} min` : 'Not set'}</div>
       </div>
       <div className="pt-4 border-t border-zinc-800">
@@ -53,7 +53,7 @@ export default function GoalsTab() {
               <span key={d} className="text-xs px-2 py-1 bg-zinc-800 rounded flex items-center gap-1">
                 {d}m
                 {exists && (
-                  <button onClick={() => removePreset(d)} className="text-zinc-500 hover:text-red-400"><Minus size={10} /></button>
+                  <button type="button" aria-label={`Remove ${d} minutes`} onClick={() => removePreset(d)} className="text-zinc-500 hover:text-red-400"><Minus size={10} /></button>
                 )}
               </span>
             )
@@ -61,7 +61,7 @@ export default function GoalsTab() {
         </div>
         <div className="flex gap-2">
           <input type="number" value={customPresetMin} onChange={e => setCustomPresetMin(e.target.value)} placeholder={t('customDuration')} className="flex-1 bg-zinc-950 px-3 py-2 rounded text-sm" />
-          <button onClick={addPreset} className="text-xs px-3 py-2 bg-zinc-800 rounded">+</button>
+          <button type="button" aria-label="Add preset" onClick={addPreset} className="text-xs px-3 py-2 bg-zinc-800 rounded">+</button>
         </div>
       </div>
     </>

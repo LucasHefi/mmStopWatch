@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPathInside, UnsafePathError, validateProfileKey, validateRelativeMarkdownPath } from '../services/pathSecurity'
+import { isPathInside, UnsafePathError, validateFrontmatterKey, validateProfileKey, validateRelativeMarkdownPath } from '../services/pathSecurity'
 
 describe('path security', () => {
   it('normalizes safe relative markdown paths', () => expect(validateRelativeMarkdownPath('Projects\\Note.md')).toBe('Projects/Note.md'))
@@ -10,8 +10,14 @@ describe('path security', () => {
     expect(validateProfileKey(' alice ')).toBe('alice')
     expect(() => validateProfileKey('../alice')).toThrow(UnsafePathError)
   })
+
+  it('validates frontmatter keys', () => {
+    expect(validateFrontmatterKey(' Timework ')).toBe('Timework')
+    expect(() => validateFrontmatterKey('Timework\nInjected: true')).toThrow(UnsafePathError)
+  })
   it('checks path containment', () => {
     expect(isPathInside('D:/vault', 'D:/vault/Projects/note.md')).toBe(true)
     expect(isPathInside('D:/vault', 'D:/vault-evil/note.md')).toBe(false)
+    expect(isPathInside('/', '/vault/note.md')).toBe(true)
   })
 })

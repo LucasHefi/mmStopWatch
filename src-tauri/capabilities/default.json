@@ -19,6 +19,8 @@
     "fs:allow-remove",
     "dialog:default",
     "notification:default",
+    "process:default",
+    "updater:default",
     "opener:default",
     {
       "identifier": "opener:allow-open-url",

@@ -61,7 +61,7 @@ The badges above are visual shortcuts; the authoritative dependency versions are
 | UI motion | Framer Motion | 12.x |
 | Icons | Lucide React | 1.x |
 | Drag and drop | `@dnd-kit` | Core 6.x, Sortable 10.x |
-| Date handling | date-fns | 4.x |
+| Date handling | Native `Date`/`Intl` APIs | — |
 | Testing | Vitest + Testing Library + jsdom | Vitest 4.x |
 | Package manager/runtime | npm + Node.js | Node.js 22 in CI |
 | Automation | GitHub Actions | Verify matrix + tagged releases |

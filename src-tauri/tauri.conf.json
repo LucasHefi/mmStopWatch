@@ -22,7 +22,7 @@
     "security": {
       "csp": {
         "default-src": "'self' customprotocol: asset:",
-        "connect-src": "ipc: http://ipc.localhost",
+        "connect-src": "ipc: http://ipc.localhost https://mediamaker.cz",
         "font-src": "'self' data:",
         "img-src": "'self' asset: http://asset.localhost blob: data:",
         "style-src": "'unsafe-inline' 'self'",
@@ -34,6 +34,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -59,7 +60,7 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://mediamaker.cz/mmstopwatch/release/{{version}}/latest.json"
+        "https://mediamaker.cz/mmstopwatch/release/latest.json"
       ],
       "dialog": false,
       "pubkey": "dwp9hf93y8Dv2XQSMRmFD63Bsaff22HrWKPf5yXf0pWxnWzJn5RsBNxvfKmycoxi3n3PfA"

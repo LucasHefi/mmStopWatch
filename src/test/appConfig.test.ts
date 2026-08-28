@@ -16,6 +16,7 @@ vi.mock('@tauri-apps/plugin-fs', () => fs)
 
 import {
   defaultConfig,
+  normalizeConfig,
   loadActivity,
   saveActivity,
   saveConfig,
@@ -44,6 +45,25 @@ describe('multi-profile config persistence', () => {
     fs.exists.mockResolvedValue(false)
     fs.mkdir.mockResolvedValue(undefined)
     fs.writeTextFile.mockResolvedValue(undefined)
+  })
+
+  it('normalizes invalid persisted values to safe defaults', () => {
+    const config = normalizeConfig({
+      frontmatterKey: 'bad:key',
+      timeEstimateKey: '  estimate  ',
+      dailyGoalMs: Number.NaN,
+      timeEstimates: { good: 30, bad: Number.POSITIVE_INFINITY },
+      notifications: { enabled: true, intervalMinutes: 999 },
+      timerLayout: { mode: 'invalid', order: ['note.md', 42] },
+    })
+
+    expect(config.frontmatterKey).toBe('Timework')
+    expect(config.timeEstimateKey).toBe('estimate')
+    expect(config.dailyGoalMs).toBe(28_800_000)
+    expect(config.timeEstimates).toEqual({ good: 30 })
+    expect(config.notifications?.intervalMinutes).toBe(60)
+    expect(config.timerLayout?.mode).toBe('list')
+    expect(config.timerLayout?.order).toEqual(['note.md'])
   })
 
   it('persists config in the active vault profile directory', async () => {

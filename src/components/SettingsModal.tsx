@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import pkg from '../../package.json'
 import { useTranslation } from '../i18n/useTranslation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Settings, FileText, Bell, Target, Database } from 'lucide-react'
+import { Settings, FileText, Bell, Target, Database, Download } from 'lucide-react'
+import { checkForUpdates, type UpdateResult } from '../services/autoUpdate'
 import GoalsTab from './SettingsTabs/GoalsTab'
 import GeneralTab from './SettingsTabs/GeneralTab'
 import FrontmatterTab from './SettingsTabs/FrontmatterTab'
@@ -22,6 +23,24 @@ const TABS: { key: Tab; label: string; icon: typeof Settings }[] = [
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('goals')
+  const [updateState, setUpdateState] = useState<UpdateResult | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [installingUpdate, setInstallingUpdate] = useState(false)
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdate(true)
+    try {
+      setUpdateState(await checkForUpdates(pkg.version))
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    if (!updateState?.install) return
+    setInstallingUpdate(true)
+    try { await updateState.install() } finally { setInstallingUpdate(false) }
+  }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -45,7 +64,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex gap-1 mb-4 border-b border-zinc-800 overflow-x-auto scrollbar-hide">
           {TABS.map(({ key, label, icon: Icon }) => (
-            <button key={key} onClick={() => setTab(key)} className={`px-3 py-1.5 text-sm rounded-t flex flex-col items-center gap-0.5 min-w-fit shrink-0 ${tab === key ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
+            <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`px-3 py-1.5 text-sm rounded-t flex flex-col items-center gap-0.5 min-w-fit shrink-0 ${tab === key ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
               <Icon size={14} />
               <span className="text-xs">{key === 'notifications' ? t('notificationsTabLabel') : label}</span>
             </button>
@@ -61,7 +80,22 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex gap-2 mt-6">
-          <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={onClose} className="flex-1 py-2 bg-zinc-800 rounded">{t('close')}</motion.button>
+          <motion.button type="button" whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={onClose} className="flex-1 py-2 bg-zinc-800 rounded">{t('close')}</motion.button>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-zinc-800 flex items-center justify-between gap-3 text-xs">
+          <span role="status" aria-live="polite" className="text-zinc-500">
+            {updateState?.available ? `${t('updateAvailable')}: ${updateState.latestVersion}` : updateState?.error || (updateState ? t('upToDate') : '')}
+          </span>
+          {updateState?.available && updateState.install ? (
+            <button type="button" onClick={() => { void handleInstallUpdate() }} disabled={installingUpdate} className="shrink-0 rounded bg-indigo-600 px-2.5 py-1.5 text-white disabled:opacity-50">
+              <Download size={12} className="mr-1 inline" />{installingUpdate ? '…' : t('updateInstall')}
+            </button>
+          ) : (
+            <button type="button" onClick={() => { void handleCheckForUpdates() }} disabled={checkingUpdate} className="shrink-0 rounded bg-zinc-800 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50">
+              {checkingUpdate ? '…' : t('checkForUpdates')}
+            </button>
+          )}
         </div>
 
         <div className="mt-4 pt-4 border-t border-zinc-800 text-xs text-zinc-500 text-center">

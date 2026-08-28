@@ -26,6 +26,12 @@ function localMidnight(dateStr: string): number {
   return new Date(dateStr + 'T00:00:00').getTime()
 }
 
+function localNextMidnight(dateStr: string): number {
+  const date = new Date(dateStr + 'T00:00:00')
+  date.setDate(date.getDate() + 1)
+  return date.getTime()
+}
+
 export function computeStats(sessions: Session[], period: 'day' | 'week' | 'month', activityEntries: ActivityEntry[] = []): StatsSummary {
   const now = Date.now()
   let startMs: number
@@ -65,7 +71,7 @@ export function computeDailyTotals(sessions: Session[], days: number = 7, activi
     d.setDate(d.getDate() - i)
     const dateStr = toLocalDateStr(d.getTime())
     const dayStart = localMidnight(dateStr)
-    const dayEnd = dayStart + 86400000
+    const dayEnd = localNextMidnight(dateStr)
     
     let ms = 0
     if (activityEntries.length > 0) {
@@ -109,7 +115,7 @@ export function computeAllDays(
   activityEntries: ActivityEntry[] = []
 ): DayDetail[] {
   const start = localMidnight(startDate)
-  const end = localMidnight(endDate) + 86400000
+  const end = localNextMidnight(endDate)
   const dayMap = new Map<string, { ms: number; items: { name: string; ms: number; notePath?: string }[] }>()
 
   if (activityEntries.length > 0) {
@@ -282,7 +288,7 @@ export function computeCalendarMonth(year: number, month: number, activityEntrie
     const date = new Date(year, month, d)
     const dateStr = `${year}-${String(month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
     const dayStart = date.getTime()
-    const dayEnd = dayStart + 86400000
+    const dayEnd = localNextMidnight(dateStr)
     const ms = activityEntries
       .filter(e => e.timestamp >= dayStart && e.timestamp < dayEnd)
       .reduce((sum, e) => sum + e.duration_ms, 0)
@@ -371,7 +377,7 @@ export function computeDayHourHeatmap(entries: ActivityEntry[], days: number): {
     d.setDate(d.getDate() - i)
     const dateStr = toLocalDateStr(d.getTime())
     const dayStart = localMidnight(dateStr)
-    const dayEnd = dayStart + 86400000
+    const dayEnd = localNextMidnight(dateStr)
 
     const dayEntries = entries.filter(e =>
       (e.timestamp < dayEnd && (e.end_timestamp || e.timestamp) >= dayStart)
@@ -393,7 +399,7 @@ export function computeAvgSessionTrend(entries: ActivityEntry[], days: number): 
     d.setDate(d.getDate() - i)
     const dateStr = toLocalDateStr(d.getTime())
     const dayStart = localMidnight(dateStr)
-    const dayEnd = dayStart + 86400000
+    const dayEnd = localNextMidnight(dateStr)
 
     const dayEntries = entries.filter(e =>
       e.timestamp >= dayStart && e.timestamp < dayEnd
@@ -711,7 +717,7 @@ export function computeEstimateAccuracy(
 ): EstimateAccuracy {
   const now = Date.now()
   const cutoff = now - days * 86400000
-  let relevantSessions = sessions.filter(s => s.timeEstimate != null && s.created_at >= cutoff)
+  let relevantSessions = sessions.filter(s => s.timeEstimate != null && Number.isFinite(s.timeEstimate) && s.timeEstimate > 0 && s.created_at >= cutoff)
 
   if (fieldFilter) {
     relevantSessions = relevantSessions.filter(s => {
@@ -747,7 +753,7 @@ export function computeEstimateAccuracy(
   const dayMap = new Map<string, { sessions: Session[] }>()
 
   for (const s of relevantSessions) {
-    const dateStr = s.created_at ? new Date(s.created_at).toISOString().split('T')[0] : ''
+    const dateStr = s.created_at ? toLocalDateStr(s.created_at) : ''
     if (!dayMap.has(dateStr)) dayMap.set(dateStr, { sessions: [] })
     dayMap.get(dateStr)!.sessions.push(s)
 

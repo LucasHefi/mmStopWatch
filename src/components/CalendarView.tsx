@@ -40,9 +40,9 @@ export default function CalendarView({ entries, dailyGoalMs }: CalendarViewProps
     <div className="select-none">
       {/* Month nav */}
       <div className="flex items-center justify-between mb-3">
-        <button onClick={prevMonth} className="text-zinc-400 hover:text-white p-1"><ChevronLeft size={16} /></button>
+        <button type="button" onClick={prevMonth} aria-label="Previous month" className="text-zinc-400 hover:text-white p-1"><ChevronLeft size={16} /></button>
         <span className="text-sm font-medium">{monthNames[month]} {year}</span>
-        <button onClick={nextMonth} className="text-zinc-400 hover:text-white p-1"><ChevronRight size={16} /></button>
+        <button type="button" onClick={nextMonth} aria-label="Next month" className="text-zinc-400 hover:text-white p-1"><ChevronRight size={16} /></button>
       </div>
 
       {/* Weekday headers */}

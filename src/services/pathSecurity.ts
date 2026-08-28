@@ -59,6 +59,7 @@ export function isPathInside(root: string, candidate: string): boolean {
   const windowsPath = WINDOWS_ABSOLUTE.test(normalizedRoot) || WINDOWS_ABSOLUTE.test(normalizedCandidate) || normalizedRoot.includes('\\') || normalizedCandidate.includes('\\')
   const left = windowsPath ? normalizedRoot.toLowerCase() : normalizedRoot
   const right = windowsPath ? normalizedCandidate.toLowerCase() : normalizedCandidate
+  if (left === '/') return right.startsWith('/')
   return right === left || right.startsWith(left + '/')
 }
 
@@ -66,7 +67,7 @@ export function resolveVaultMarkdownPath(vaultRoot: string, candidate: string): 
   const root = validateAbsoluteVaultPath(vaultRoot)
   const trimmed = candidate.trim()
   const isAbsolute = trimmed.startsWith('/') || WINDOWS_ABSOLUTE.test(trimmed) || UNC.test(trimmed)
-  const resolved = isAbsolute ? trimmed.replace(/\\/g, '/') : root + '/' + validateRelativeMarkdownPath(trimmed)
+  const resolved = isAbsolute ? trimmed.replace(/\\/g, '/') : (root === '/' ? '/' : root + '/') + validateRelativeMarkdownPath(trimmed)
   if (!isPathInside(root, resolved)) fail('Note path is outside the selected vault')
   if (!resolved.toLowerCase().endsWith('.md')) fail('Only Markdown notes are allowed')
   return resolved

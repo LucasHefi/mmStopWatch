@@ -9,10 +9,11 @@ export default function FrontmatterTab() {
   const { t } = useTranslation()
   const [newField, setNewField] = useState('')
 
-  const updateKey = (v: string) => setMDConfig({ ...mdConfig, frontmatterKey: v })
-  const updateEstimateKey = (v: string) => setMDConfig({ ...mdConfig, timeEstimateKey: v })
-  const updateFormat = (v: string) => setMDConfig({ ...mdConfig, timeFormat: v })
-  const updateVault = (v: string) => setMDConfig({ ...mdConfig, obsidianVault: v })
+  const updateKey = (v: string) => setMDConfig({ frontmatterKey: v }, { refresh: false })
+  const updateEstimateKey = (v: string) => setMDConfig({ timeEstimateKey: v }, { refresh: false })
+  const updateFormat = (v: string) => setMDConfig({ timeFormat: v }, { refresh: false })
+  const updateVault = (v: string) => setMDConfig({ obsidianVault: v }, { refresh: false })
+  const refreshIndex = () => setMDConfig({}, { refresh: true })
 
   const statsFields = mdConfig.statsFieldKeys || ['project', 'client', 'type']
 
@@ -36,11 +37,11 @@ export default function FrontmatterTab() {
       </div>
       <div>
         <label className="block text-sm mb-1">{t('frontmatterKey')}</label>
-        <input value={mdConfig.frontmatterKey} onChange={e => updateKey(e.target.value)} className="w-full bg-zinc-950 px-3 py-2 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
+        <input value={mdConfig.frontmatterKey} onChange={e => updateKey(e.target.value)} onBlur={refreshIndex} className="w-full bg-zinc-950 px-3 py-2 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
       </div>
       <div>
         <label className="block text-sm mb-1">{t('timeEstimateKey')}</label>
-        <input value={mdConfig.timeEstimateKey || 'timeEstimate'} onChange={e => updateEstimateKey(e.target.value)} className="w-full bg-zinc-950 px-3 py-2 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
+        <input value={mdConfig.timeEstimateKey || 'timeEstimate'} onChange={e => updateEstimateKey(e.target.value)} onBlur={refreshIndex} className="w-full bg-zinc-950 px-3 py-2 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
         <div className="text-xs mt-1 text-zinc-500">Frontmatter key for time estimate (minutes)</div>
       </div>
       <div>
@@ -54,7 +55,7 @@ export default function FrontmatterTab() {
           {statsFields.map(key => (
             <span key={key} className="flex items-center gap-1 text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-300">
               {key}
-              <button onClick={() => removeField(key)} className="text-zinc-500 hover:text-red-400"><X size={10} /></button>
+              <button type="button" aria-label={`Remove ${key}`} onClick={() => removeField(key)} className="text-zinc-500 hover:text-red-400"><X size={10} /></button>
             </span>
           ))}
         </div>
@@ -66,7 +67,7 @@ export default function FrontmatterTab() {
             placeholder="Add field..."
             className="flex-1 bg-zinc-950 px-3 py-1.5 rounded text-sm focus:ring-1 focus:ring-zinc-700"
           />
-          <motion.button whileTap={{ scale: 0.95 }} onClick={addField} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400"><Plus size={14} /></motion.button>
+          <motion.button type="button" aria-label="Add field" whileTap={{ scale: 0.95 }} onClick={addField} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400"><Plus size={14} /></motion.button>
         </div>
       </div>
     </>

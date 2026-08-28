@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
-import { writeTextFile, exists } from '@tauri-apps/plugin-fs'
+import { exists } from '@tauri-apps/plugin-fs'
 import { updateFrontmatter } from '../services/mdStorage'
+import { resolveVaultMarkdownPath } from '../services/pathSecurity'
+import { writeTextFileAtomically } from '../services/safeFileWriter'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatMsToTime } from '../utils/time'
 
@@ -13,10 +15,18 @@ export default function NewNoteModal({ onClose }: { onClose: () => void }) {
   })
   const [initialTime, setInitialTime] = useState('')
   const [tags, setTags] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const create = async () => {
     if (!notesFolder) return
-    const path = `${notesFolder}/${filename}`
+    setError(null)
+    let targetPath: string
+    try {
+      targetPath = resolveVaultMarkdownPath(notesFolder, filename)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return
+    }
     const key = mdConfig.frontmatterKey
     const fmt = mdConfig.timeFormat
     let timeStr = ''
@@ -37,15 +47,24 @@ export default function NewNoteModal({ onClose }: { onClose: () => void }) {
       const tagList = tags.split(',').map(t => t.trim()).filter(Boolean)
       updated = updateFrontmatter(updated, 'tags', tagList)
     }
-    let targetPath = path
     let currentFilename = filename
     while (await exists(targetPath)) {
       const newName = prompt(`File "${currentFilename}" already exists. Enter a new filename:`, currentFilename)
       if (!newName) return // cancel
       currentFilename = newName
-      targetPath = `${notesFolder}/${currentFilename}`
+      try {
+        targetPath = resolveVaultMarkdownPath(notesFolder, currentFilename)
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause))
+        return
+      }
     }
-    await writeTextFile(targetPath, updated)
+    try {
+      await writeTextFileAtomically(targetPath, updated, null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      return
+    }
     await refreshSessions()
     // optionally set filter or active - minimal: just close
     onClose()
@@ -61,6 +80,7 @@ export default function NewNoteModal({ onClose }: { onClose: () => void }) {
         className="bg-zinc-900 p-6 rounded-2xl w-96"
       >
         <h3 className="mb-4 text-lg">New Note</h3>
+        {error && <div className="mb-3 text-xs text-red-300" role="alert">{error}</div>}
         <input value={filename} onChange={e => setFilename(e.target.value)} placeholder="filename.md" className="w-full mb-3 px-3 py-2 bg-zinc-950 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
         <input value={initialTime} onChange={e => setInitialTime(e.target.value)} placeholder={`initial time (${mdConfig.timeFormat})`} className="w-full mb-3 px-3 py-2 bg-zinc-950 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />
         <input value={tags} onChange={e => setTags(e.target.value)} placeholder="tags (comma sep)" className="w-full mb-3 px-3 py-2 bg-zinc-950 rounded focus:ring-1 focus:ring-zinc-700 transition-all" />

@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0 hardening
 ### Added
+- Native signed Tauri updater flow with release checks from Settings and restart after installation
 - React-free TimerEngine adapter with monotonic work/pause segments and one visibility-aware central ticker
 - Crash recovery checkpoints, recovery overlay and bounded elapsed-time estimation after an interrupted running session
 - Atomic Markdown/config writes with content fingerprints, conflict detection and retryable operation journal
@@ -10,6 +11,7 @@
 - Executable acceptance runner via npm run verify:2.0 and the desktop/security test program in docs/mmstopwatch-2.0-test-program.md
 
 ### Security
+- Updater CSP is restricted to the trusted HTTPS release host and runtime config values are normalized before use
 - Centralized vault/profile/relative Markdown path validation rejects traversal, encoded separators, UNC/device paths and control characters
 - Removed the unused legacy Tauri greet command and granted only the atomic writer's rename/remove filesystem permissions
 - Updated vulnerable npm lockfile packages; npm audit --audit-level=high is clean

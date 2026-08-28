@@ -1,7 +1,7 @@
 import { readTextFile, exists, mkdir, readDir } from '@tauri-apps/plugin-fs'
 import { writeTextFileAtomically } from './safeFileWriter'
-import { validateAbsoluteVaultPath, validateProfileKey } from './pathSecurity'
-import type { MDConfig, DeletedSession, ActivityHistory, VaultProfile } from '../types/session'
+import { validateAbsoluteVaultPath, validateProfileKey, validateFrontmatterKey } from './pathSecurity'
+import type { MDConfig, DeletedSession, ActivityHistory, VaultProfile, LayoutMode } from '../types/session'
 
 const CONFIG_FILE = 'config.json'
 const DELETED_FILE = 'deleted_sessions.json'
@@ -30,10 +30,70 @@ async function ensureDir(dir: string): Promise<void> {
 const LEGACY_CONFIG_KEY = 'mmstopwatch_md_config'
 const LEGACY_DELETED_KEY = 'mmstopwatch_deleted_sessions'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function finiteNumber(value: unknown, fallback: number, minimum = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum ? value : fallback
+}
+
+function safeKey(value: unknown, fallback: string): string {
+  try {
+    return validateFrontmatterKey(typeof value === 'string' ? value : fallback)
+  } catch {
+    return fallback
+  }
+}
+
+/** Keep persisted settings backward-compatible and safe to consume after upgrades. */
+export function normalizeConfig(value: unknown): MDConfig {
+  const defaults = defaultConfig()
+  const defaultRoundTimes = defaults.roundTimes || { enabled: false, durations: [45, 60, 90, 120] }
+  const defaultNotifications = defaults.notifications || { enabled: true, intervalMinutes: 60 as const }
+  const defaultTimerLimitAlert = defaults.timerLimitAlert || { enabled: true, soundEnabled: false, soundPath: null, notificationsEnabled: true, customMessage: '', showOverlay: true }
+  const defaultTimerLayout = defaults.timerLayout || { mode: 'list' as const, order: [] }
+  if (!isRecord(value)) return defaults
+  const config = { ...defaults, ...value } as MDConfig
+  config.notesFolder = typeof value.notesFolder === 'string' && value.notesFolder.trim() ? value.notesFolder : null
+  config.frontmatterKey = safeKey(value.frontmatterKey, defaults.frontmatterKey)
+  config.timeEstimateKey = safeKey(value.timeEstimateKey, defaults.timeEstimateKey || 'timeEstimate')
+  config.timeFormat = typeof value.timeFormat === 'string' && value.timeFormat.trim().length <= 32 ? value.timeFormat.trim() : defaults.timeFormat
+  config.tags = Array.isArray(value.tags) ? value.tags.filter((item): item is string => typeof item === 'string') : defaults.tags
+  config.pinnedNotes = Array.isArray(value.pinnedNotes) ? value.pinnedNotes.filter((item): item is string => typeof item === 'string' && item.length > 0) : defaults.pinnedNotes
+  config.statsFieldKeys = Array.isArray(value.statsFieldKeys) ? value.statsFieldKeys.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : defaults.statsFieldKeys
+  config.dailyGoalMs = finiteNumber(value.dailyGoalMs, defaults.dailyGoalMs ?? 28_800_000)
+  config.autoRefreshInterval = finiteNumber(value.autoRefreshInterval, defaults.autoRefreshInterval ?? 10)
+  config.timeEstimates = isRecord(value.timeEstimates)
+    ? Object.fromEntries(Object.entries(value.timeEstimates).filter(([, minutes]) => typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0)) as Record<string, number>
+    : defaults.timeEstimates
+  config.roundTimes = isRecord(value.roundTimes)
+    ? { enabled: typeof value.roundTimes.enabled === 'boolean' ? value.roundTimes.enabled : defaultRoundTimes.enabled, customMinutes: typeof value.roundTimes.customMinutes === 'number' && Number.isFinite(value.roundTimes.customMinutes) ? value.roundTimes.customMinutes : undefined, durations: Array.isArray(value.roundTimes.durations) ? value.roundTimes.durations.filter((item): item is number => typeof item === 'number' && Number.isFinite(item) && item > 0) : defaultRoundTimes.durations }
+    : defaultRoundTimes
+  config.notifications = isRecord(value.notifications)
+    ? { enabled: typeof value.notifications.enabled === 'boolean' ? value.notifications.enabled : defaultNotifications.enabled, intervalMinutes: [0, 5, 10, 15, 30, 60, 120].includes(value.notifications.intervalMinutes as number) ? value.notifications.intervalMinutes as 0 | 5 | 10 | 15 | 30 | 60 | 120 : defaultNotifications.intervalMinutes }
+    : defaultNotifications
+  config.timerLimitAlert = isRecord(value.timerLimitAlert)
+    ? { enabled: typeof value.timerLimitAlert.enabled === 'boolean' ? value.timerLimitAlert.enabled : defaultTimerLimitAlert.enabled, soundEnabled: typeof value.timerLimitAlert.soundEnabled === 'boolean' ? value.timerLimitAlert.soundEnabled : defaultTimerLimitAlert.soundEnabled, soundPath: typeof value.timerLimitAlert.soundPath === 'string' ? value.timerLimitAlert.soundPath : null, notificationsEnabled: typeof value.timerLimitAlert.notificationsEnabled === 'boolean' ? value.timerLimitAlert.notificationsEnabled : defaultTimerLimitAlert.notificationsEnabled, customMessage: typeof value.timerLimitAlert.customMessage === 'string' ? value.timerLimitAlert.customMessage : defaultTimerLimitAlert.customMessage, showOverlay: typeof value.timerLimitAlert.showOverlay === 'boolean' ? value.timerLimitAlert.showOverlay : defaultTimerLimitAlert.showOverlay }
+    : defaultTimerLimitAlert
+  config.timerLayout = isRecord(value.timerLayout)
+    ? { mode: ['list', 'grid-1', 'grid-2', 'grid-3', 'grid-4'].includes(value.timerLayout.mode as string) ? value.timerLayout.mode as LayoutMode : defaultTimerLayout.mode, order: Array.isArray(value.timerLayout.order) ? value.timerLayout.order.filter((item): item is string => typeof item === 'string') : defaultTimerLayout.order }
+    : defaultTimerLayout
+  config.profiles = Array.isArray(value.profiles) ? value.profiles.filter(isRecord).filter(profile => typeof profile.id === 'string' && typeof profile.name === 'string') as unknown as VaultProfile[] : defaults.profiles
+  config.activeProfileId = typeof value.activeProfileId === 'string' ? value.activeProfileId : undefined
+  if (typeof value.nick === 'string') {
+    try { config.nick = validateProfileKey(value.nick) } catch { config.nick = undefined }
+  } else {
+    config.nick = undefined
+  }
+  config.obsidianVault = typeof value.obsidianVault === 'string' ? value.obsidianVault.trim().slice(0, 200) : undefined
+  return config
+}
+
 function loadLegacyConfig(): MDConfig {
   try {
     const raw = localStorage.getItem(LEGACY_CONFIG_KEY)
-    return raw ? JSON.parse(raw) as MDConfig : defaultConfig()
+    return raw ? normalizeConfig(JSON.parse(raw)) : defaultConfig()
   } catch {
     return defaultConfig()
   }
@@ -44,7 +104,13 @@ export async function loadConfig(notesFolder: string | null, nick: string | null
   const normalizedFolder = validateAbsoluteVaultPath(notesFolder)
   const path = getConfigPath(normalizedFolder, nick)
   if (await exists(path)) {
-    const stored = JSON.parse(await readTextFile(path)) as MDConfig
+    let stored: MDConfig
+    try {
+      stored = normalizeConfig(JSON.parse(await readTextFile(path)))
+    } catch (error) {
+      console.warn('Invalid vault config, using defaults/legacy settings:', error)
+      stored = loadLegacyConfig()
+    }
     // The config file lives inside this vault. Its historical notesFolder value
     // may belong to another operating system (for example D:\\... from Windows),
     // so never let it redirect the current vault scan.

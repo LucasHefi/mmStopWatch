@@ -97,6 +97,8 @@ export default function TimerGrid({ timers, viewMode, layoutMode, onLayoutModeCh
     <div className="w-full max-w-full relative z-10">
       <div className="flex items-center justify-end gap-1 mb-3">
         <button
+          type="button"
+          aria-label="Table view"
           onClick={() => onViewModeChange('table')}
           className={`p-1.5 rounded text-xs transition-colors ${viewMode === 'table' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           title="Table view"
@@ -104,6 +106,8 @@ export default function TimerGrid({ timers, viewMode, layoutMode, onLayoutModeCh
           <LayoutList size={14} />
         </button>
         <button
+          type="button"
+          aria-label="Card view"
           onClick={() => onViewModeChange('cards')}
           className={`p-1.5 rounded text-xs transition-colors ${viewMode === 'cards' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           title="Card view"
@@ -118,6 +122,8 @@ export default function TimerGrid({ timers, viewMode, layoutMode, onLayoutModeCh
               return (
                 <button
                   key={mode}
+                  type="button"
+                  aria-label={title}
                   onClick={() => onLayoutModeChange(mode)}
                   className={`p-1.5 rounded text-xs transition-colors ${layoutMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
                   title={title}

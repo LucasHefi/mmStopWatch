@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { checkAndNotify, resetNotificationCycle } from './core/notificationManager'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import pkg from '../package.json'
@@ -39,8 +39,10 @@ function App() {
   const filteredSessions = useSessionStore(selectFilteredSessions)
   const mdConfig = useSessionStore(selectMdConfig)
   const timers = useTimersStore(useShallow(selectTimers))
-  const runningTimers = timers.filter(t => t.status === 'RUNNING')
-  const { refreshSessions, openNote, deletedSessions, undoDelete, isPinned, togglePinNote, notesLoading, notesError } = useSessionStore()
+  const runningTimers = useMemo(() => timers.filter(t => t.status === 'RUNNING'), [timers])
+  const runningTimersByNote = useMemo(() => new Map(runningTimers.map(timer => [timer.notePath, timer])), [runningTimers])
+  const pinnedNotes = useMemo(() => new Set(mdConfig.pinnedNotes || []), [mdConfig.pinnedNotes])
+  const { refreshSessions, openNote, deletedSessions, undoDelete, togglePinNote, notesLoading, notesError } = useSessionStore()
   const { t } = useTranslation()
   useRecoveryLifecycle()
   const searchValue = useSessionStore(s => s.filters.search)
@@ -164,13 +166,13 @@ function App() {
         <div className="mb-3 rounded-xl border border-red-900/70 bg-red-950/30 px-3 py-3 text-xs text-red-200" role="alert">
           <div className="font-medium">{t('notesLoadFailed')}</div>
           <div className="mt-1 break-words text-red-300/80">{notesError}</div>
-          <button onClick={() => { void refreshSessions() }} className="mt-2 rounded-lg bg-red-900/60 px-2.5 py-1 text-red-100 hover:bg-red-900">{t('retry')}</button>
+          <button type="button" onClick={() => { void refreshSessions() }} className="mt-2 rounded-lg bg-red-900/60 px-2.5 py-1 text-red-100 hover:bg-red-900">{t('retry')}</button>
         </div>
       )}
       {deletedSessions.length > 0 && (
         <div className="mb-2 flex items-center justify-between bg-zinc-900 rounded-xl px-3 py-2 text-xs">
           <span className="text-zinc-500">{deletedSessions.length} {t('deleted')}</span>
-          <button onClick={() => undoDelete()} className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
+          <button type="button" onClick={() => undoDelete()} className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
             <ArrowLeftRight size={12} /> {t('undo')}
           </button>
         </div>
@@ -178,9 +180,9 @@ function App() {
       <div className="flex justify-between items-center mb-4">
         <div className="flex gap-1 flex-wrap">
           <button onClick={() => setShowNew(true)} className="text-xs px-3 py-1 bg-zinc-800 rounded">{t('new')}</button>
-          <button onClick={refreshSessions} className="text-xs px-3 py-1 bg-zinc-800 rounded text-zinc-400 hover:text-white" title="Refresh"><RefreshCw size={12} /></button>
-          <button onClick={() => setShowStats(true)} className="text-xs px-3 py-1 bg-zinc-800 rounded text-zinc-400 hover:text-white" title={t('statistics')}><BarChart3 size={12} /></button>
-          <button onClick={() => setShowSettings(true)} className="text-xs px-3 py-1 bg-zinc-800 rounded text-zinc-400 hover:text-white" title={t('settings')}><Settings size={12} /></button>
+          <button type="button" onClick={refreshSessions} aria-label="Refresh" className="text-xs px-3 py-1 bg-zinc-800 rounded text-zinc-400 hover:text-white" title="Refresh"><RefreshCw size={12} /></button>
+          <button type="button" onClick={() => setShowStats(true)} aria-label={t('statistics')} className="text-xs px-3 py-1 bg-zinc-800 rounded text-zinc-400 hover:text-white" title={t('statistics')}><BarChart3 size={12} /></button>
+          <button type="button" onClick={() => setShowSettings(true)} aria-label={t('settings')} className="text-xs px-3 py-1 bg-zinc-800 rounded text-zinc-400 hover:text-white" title={t('settings')}><Settings size={12} /></button>
         </div>
       </div>
       <div className="relative mb-3">
@@ -194,6 +196,8 @@ function App() {
         />
         {searchValue && (
           <button
+            type="button"
+            aria-label={t('clear')}
             onClick={() => useSessionStore.getState().setFilters({ search: '' })}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
           >
@@ -207,7 +211,7 @@ function App() {
           <motion.div initial={{opacity:0}} animate={{opacity:1}} className="text-sm text-zinc-500 py-8 text-center">{t('noSessions')}</motion.div>
         )}
         {filteredSessions.map((s) => {
-          const runningTimer = runningTimers.find(t => t.notePath === s.notePath)
+          const runningTimer = runningTimersByNote.get(s.notePath || '')
           const noteColor = runningTimer ? runningTimer.color : gray
           const isRunning = !!runningTimer && runningTimer.status === 'RUNNING'
           return (
@@ -221,21 +225,23 @@ function App() {
               whileTap={{ scale: 0.98 }}
               onClick={() => openNote(s)}
               style={{borderLeftColor: noteColor + 'b3', ...(isRunning ? { background: `radial-gradient(circle at 0% 50%, ${noteColor}33 0%, transparent 60%), #18181b` } : {})}}
-              className={`relative pl-3 pr-4 py-3 rounded-xl hover:bg-zinc-800/80 transition-all duration-200 min-w-0 cursor-pointer border-l-2 ${isPinned(s.notePath || '') ? 'bg-zinc-800/60' : 'bg-zinc-900/60'} backdrop-blur-sm ${isRunning ? 'running-row' : ''}`}
+              className={`relative pl-3 pr-4 py-3 rounded-xl hover:bg-zinc-800/80 transition-all duration-200 min-w-0 cursor-pointer border-l-2 ${pinnedNotes.has(s.notePath || '') ? 'bg-zinc-800/60' : 'bg-zinc-900/60'} backdrop-blur-sm ${isRunning ? 'running-row' : ''}`}
             >
               {s.relativePath && (
                 <div className="text-[10px] text-zinc-500 mb-1 truncate">{s.relativePath}</div>
               )}
               <motion.button
+                type="button"
+                aria-label={pinnedNotes.has(s.notePath || '') ? t('unpinNote') : t('pinNote')}
                 whileTap={{ scale: 0.85, rotate: 15 }}
                 onClick={(e) => {
                   e.stopPropagation()
                   togglePinNote(s.notePath || '')
                 }}
                 className="absolute top-2 right-2 text-indigo-400 hover:text-indigo-300 transition-colors"
-                title={isPinned(s.notePath || '') ? 'Unpin' : 'Pin'}
+                title={pinnedNotes.has(s.notePath || '') ? 'Unpin' : 'Pin'}
               >
-                {isPinned(s.notePath || '') ? <Bookmark size={14} className="fill-indigo-400" /> : <Bookmark size={14} />}
+                {pinnedNotes.has(s.notePath || '') ? <Bookmark size={14} className="fill-indigo-400" /> : <Bookmark size={14} />}
               </motion.button>
               {isRunning ? (
                 <div className="flex justify-between items-start min-w-0">
@@ -259,10 +265,12 @@ function App() {
                 </div>
               )}
               <div className="flex gap-2 mt-2 text-xs" onClick={e => e.stopPropagation()}>
-                <button onClick={() => setEditSession(s)} className="text-zinc-400 hover:text-white"><Pencil size={12} /></button>
-                {s.preview && <button onClick={() => setPreviewSession(s)} className="text-zinc-400 hover:text-white" title={t('preview')}><Eye size={12} /></button>}
+                <button type="button" onClick={() => setEditSession(s)} aria-label={`${t('edit')}: ${s.name}`} className="text-zinc-400 hover:text-white"><Pencil size={12} /></button>
+                {s.preview && <button type="button" onClick={() => setPreviewSession(s)} aria-label={`${t('preview')}: ${s.name}`} className="text-zinc-400 hover:text-white" title={t('preview')}><Eye size={12} /></button>}
                 {s.notePath && (
                   <button
+                    type="button"
+                    aria-label={`${t('openInObsidian')}: ${s.name}`}
                     onClick={async (e) => {
                       e.stopPropagation()
                       const vault = encodeURIComponent(mdConfig.obsidianVault || 'YourVaultName')
@@ -288,6 +296,8 @@ function App() {
     <div className="h-screen overflow-hidden bg-zinc-950 text-white flex relative">
       {isMobile && (
         <button
+          type="button"
+          aria-label={t('sidebarToggle')}
           onClick={() => setSidebarOpen(true)}
           className="fixed top-4 right-4 z-40 p-2 bg-zinc-800 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all shadow-lg"
           title={t('sidebarToggle')}

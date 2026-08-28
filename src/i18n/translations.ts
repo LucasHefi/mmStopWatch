@@ -21,6 +21,10 @@ export const languages: { code: Language; name: string }[] = [
 export const translations: Record<Language, Record<string, string>> = {
   cs: {
     settings: 'Nastavení',
+    checkForUpdates: 'Zkontrolovat aktualizace',
+    updateAvailable: 'Je dostupná nová verze',
+    upToDate: 'Používáte aktuální verzi',
+    updateInstall: 'Nainstalovat aktualizaci',
     nick: 'Přezdívka (nick)',
     notesFolder: 'Složka poznámek',
     selectFolder: 'Vybrat složku',
@@ -230,6 +234,10 @@ export const translations: Record<Language, Record<string, string>> = {
   },
   en: {
     settings: 'Settings',
+    checkForUpdates: 'Check for updates',
+    updateAvailable: 'An update is available',
+    upToDate: 'You are up to date',
+    updateInstall: 'Install update',
     nick: 'Nick',
     notesFolder: 'Notes Folder',
     selectFolder: 'Select Folder',

@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   readTextFile: fs.readTextFile,
 }))
 
-import { loadNotesFromFolder, parseFrontmatter, updateFrontmatter, parseTimeToMs } from '../services/mdStorage'
+import { loadNotesFromFolder, parseFrontmatter, updateFrontmatter, removeFrontmatterKey, parseTimeToMs } from '../services/mdStorage'
 
 const directory = (name: string) => ({ name, isDirectory: true, isFile: false, isSymlink: false })
 const file = (name: string) => ({ name, isDirectory: false, isFile: true, isSymlink: false })
@@ -138,6 +138,22 @@ describe('updateFrontmatter', () => {
     expect(result).toContain('TimeworkTotal: 100')
     expect(result).toContain('Timework: 75')
   })
+
+  it('rejects frontmatter keys that can inject new lines', () => {
+    expect(() => updateFrontmatter('Body', 'Timework\nmalicious', '1')).toThrow()
+  })
+})
+
+describe('removeFrontmatterKey', () => {
+  it('removes only the requested key and preserves the body', () => {
+    const content = '---\nTimework: 01:00:00\ntitle: Keep\n---\nTimework: keep this body\nBody'
+    expect(removeFrontmatterKey(content, 'Timework')).toBe('---\ntitle: Keep\n---\nTimework: keep this body\nBody')
+  })
+
+  it('leaves notes without frontmatter unchanged', () => {
+    const content = 'Timework: keep this body\nBody'
+    expect(removeFrontmatterKey(content, 'Timework')).toBe(content)
+  })
 })
 
 describe('parseTimeToMs', () => {
@@ -163,5 +179,7 @@ describe('parseTimeToMs', () => {
 
   it('returns error for invalid format', () => {
     expect(parseTimeToMs('abc').error).toBe('Invalid time format')
+    expect(parseTimeToMs('Infinity').error).toBe('Invalid time format')
+    expect(parseTimeToMs('01:60:00').error).toBe('Invalid time format')
   })
 })

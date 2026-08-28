@@ -3,12 +3,13 @@ import type { Session, MDConfig, FilterOptions, DeletedSession, RecentlyDeleted 
 import {
   selectNotesFolder,
   updateFrontmatter,
+  removeFrontmatterKey,
   parseFrontmatter,
   parseTimeToMs,
 } from '../services/mdStorage'
 import { exists, readTextFile } from '@tauri-apps/plugin-fs'
 import { activityService } from '../services/activityService'
-import { loadConfig, saveConfig as appSaveConfig, loadDeleted, saveDeleted as appSaveDeleted, defaultConfig, saveCurrentProfile, switchProfile as applyProfileConfig, createProfileFromConfig } from '../services/appConfig'
+import { loadConfig, saveConfig as appSaveConfig, loadDeleted, saveDeleted as appSaveDeleted, defaultConfig, normalizeConfig, saveCurrentProfile, switchProfile as applyProfileConfig, createProfileFromConfig } from '../services/appConfig'
 import { formatMsToTime } from '../utils/time'
 import { authorizeNotesFolder } from '../services/tauriScope'
 import { useTimersStore } from './timersStore'
@@ -19,6 +20,8 @@ import { noteIndex } from '../services/noteIndex'
 
 const LEGACY_CONFIG_KEY = 'mmstopwatch_md_config'
 const pendingActivityDurations = new Map<string, number>()
+let refreshGeneration = 0
+let configWriteQueue: Promise<void> = Promise.resolve()
 
 interface MDState {
   notesFolder: string | null
@@ -40,7 +43,7 @@ interface MDState {
   setFilters: (filters: Partial<FilterOptions>) => void
   addTagToSession: (session: Session, tag: string) => Promise<void>
   discardTimer: (timerId: string, timerState: { elapsed: number; pausedOffset: number }) => void
-  setMDConfig: (config: Partial<MDConfig>) => Promise<void>
+  setMDConfig: (config: Partial<MDConfig>, options?: { refresh?: boolean }) => Promise<void>
   togglePinNote: (notePath: string) => void
   isPinned: (notePath: string) => boolean
   setTimeEstimate: (notePath: string, minutes: number | null) => Promise<void>
@@ -107,6 +110,7 @@ export const useSessionStore = create<MDState>()(
   },
 
   refreshSessions: async () => {
+    const request = ++refreshGeneration
     const { notesFolder, mdConfig, activeNote } = get()
     if (!notesFolder) {
       set({ sessions: [], filteredSessions: [], notesLoading: false, notesError: null, activeNote: null })
@@ -115,6 +119,7 @@ export const useSessionStore = create<MDState>()(
     set({ notesLoading: true, notesError: null })
     try {
       const sessions = await noteIndex.load({ folder: notesFolder, frontmatterKey: mdConfig.frontmatterKey, timeEstimateKey: mdConfig.timeEstimateKey, statsFieldKeys: mdConfig.statsFieldKeys })
+      if (request !== refreshGeneration) return
       const pinned = mdConfig.pinnedNotes || []
       sessions.sort((a, b) => {
         const ap = pinned.includes(a.notePath || '')
@@ -202,16 +207,12 @@ export const useSessionStore = create<MDState>()(
 
   deleteSession: async (session: Session) => {
     if (!session.notePath) return
+    const { mdConfig } = get()
     const safePath = resolveVaultMarkdownPath(get().notesFolder || '', session.notePath)
     const content = await readTextFile(safePath)
     const before = await readFileSnapshot(safePath)
-    const { data } = parseFrontmatter(content)
-    delete data[session.frontmatterKey || 'stopwatch_time']
-    let yaml = '---\n'
-    Object.entries(data).forEach(([key, value]) => { yaml += key + ': ' + (Array.isArray(value) ? '[' + value.join(',') + ']' : value) + '\n' })
-    yaml += '---\n'
-    const rest = content.split('---\n').slice(2).join('---\n')
-    await writeTextFileAtomically(safePath, yaml + rest, before)
+    const updated = removeFrontmatterKey(content, session.frontmatterKey || mdConfig.frontmatterKey)
+    await writeTextFileAtomically(safePath, updated, before)
     const now = Date.now()
     const deleted: DeletedSession = { session: { ...session }, deletedAt: now }
     set(state => ({
@@ -221,7 +222,6 @@ export const useSessionStore = create<MDState>()(
       deletedSessions: [...state.deletedSessions, deleted].slice(-20),
       recentlyDeleted: { session: { ...session }, deletedAt: now, expiresAt: now + 30000 },
     }))
-    const { mdConfig } = get()
     await appSaveDeleted(get().deletedSessions, mdConfig.notesFolder, mdConfig.nick || null)
   },
 
@@ -244,18 +244,27 @@ export const useSessionStore = create<MDState>()(
     set({ filters, filteredSessions: applyFilters(get().sessions, filters) })
   },
 
-  setMDConfig: async partial => {
-    const previousConfig = get().mdConfig
-    let cfg = await saveCurrentProfile({ ...previousConfig, ...partial })
-    const previousFolder = get().notesFolder
-    const profileChanged = cfg.nick !== previousConfig.nick
-    if (cfg.notesFolder && (cfg.notesFolder !== previousFolder || profileChanged)) {
-      await authorizeNotesFolder(cfg.notesFolder, cfg.nick || null)
-    }
-    await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
-    try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch {}
-    set({ mdConfig: cfg, notesFolder: cfg.notesFolder })
-    await get().refreshSessions()
+  setMDConfig: async (partial, options) => {
+    const operation = configWriteQueue.catch(() => undefined).then(async () => {
+      const previousConfig = get().mdConfig
+      const normalized = normalizeConfig({ ...previousConfig, ...partial })
+      const cfg = await saveCurrentProfile(normalized)
+      const previousFolder = get().notesFolder
+      const profileChanged = cfg.nick !== previousConfig.nick
+      if (cfg.notesFolder && (cfg.notesFolder !== previousFolder || profileChanged)) {
+        await authorizeNotesFolder(cfg.notesFolder, cfg.nick || null)
+      }
+      await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
+      try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch {}
+      set({ mdConfig: cfg, notesFolder: cfg.notesFolder })
+      const indexSettingsChanged = previousConfig.notesFolder !== cfg.notesFolder
+        || previousConfig.frontmatterKey !== cfg.frontmatterKey
+        || previousConfig.timeEstimateKey !== cfg.timeEstimateKey
+        || JSON.stringify(previousConfig.statsFieldKeys || []) !== JSON.stringify(cfg.statsFieldKeys || [])
+      if (options?.refresh !== false && (options?.refresh === true || indexSettingsChanged)) await get().refreshSessions()
+    })
+    configWriteQueue = operation
+    await operation
   },
 
   togglePinNote: async notePath => {
@@ -306,7 +315,10 @@ export const useSessionStore = create<MDState>()(
 
   openNote: (session, restoreState) => {
     set({ activeNote: session })
-    const notePath = session.notePath
+    let notePath: string | undefined
+    if (session.notePath) {
+      try { notePath = resolveVaultMarkdownPath(get().notesFolder || '', session.notePath) } catch { notePath = undefined }
+    }
     let finalRestoreState = restoreState
     if (notePath && !restoreState) {
       const { recentlyDeleted } = get()
@@ -342,7 +354,7 @@ export const useSessionStore = create<MDState>()(
       const before = await readFileSnapshot(safePath)
       const key = mdConfig.timeEstimateKey || 'timeEstimate'
       if (minutes === null || minutes <= 0) {
-        const newContent = content.split('\n').filter(line => !line.trim().startsWith(key + ':')).join('\n')
+        const newContent = removeFrontmatterKey(content, key)
         await writeTextFileAtomically(safePath, newContent, before)
       } else {
         await writeTextFileAtomically(safePath, updateFrontmatter(content, key, minutes), before)
@@ -385,8 +397,23 @@ export const useSessionStore = create<MDState>()(
     const profiles = (mdConfig.profiles || []).filter(profile => profile.id !== profileId)
     let cfg = { ...mdConfig, profiles }
     if (mdConfig.activeProfileId === profileId) {
+      if (profiles.length > 0) {
+        const switched = await applyProfileConfig({ ...cfg, activeProfileId: undefined }, profiles[0].id)
+        await appSaveConfig(switched, switched.notesFolder, switched.nick || null)
+        try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(switched)) } catch {}
+        set({ notesFolder: switched.notesFolder, mdConfig: switched, activeNote: null, recentlyDeleted: null })
+        useTimersStore.getState().resetAll()
+        if (switched.notesFolder) {
+          await authorizeNotesFolder(switched.notesFolder, switched.nick || null)
+          await activityService.loadHistory(switched.notesFolder)
+          set({ deletedSessions: await loadDeleted(switched.notesFolder, switched.nick || null) })
+          await get().refreshSessions()
+        } else {
+          set({ sessions: [], filteredSessions: [], deletedSessions: [] })
+        }
+        return
+      }
       cfg.activeProfileId = undefined
-      if (profiles.length > 0) return get().switchProfile(profiles[0].id)
     }
     await appSaveConfig(cfg, cfg.notesFolder, cfg.nick || null)
     try { localStorage.setItem(LEGACY_CONFIG_KEY, JSON.stringify(cfg)) } catch {}
@@ -397,7 +424,7 @@ export const useSessionStore = create<MDState>()(
     let config: MDConfig
     try {
       const raw = localStorage.getItem(LEGACY_CONFIG_KEY)
-      config = raw ? JSON.parse(raw) : defaultConfig()
+      config = raw ? normalizeConfig(JSON.parse(raw)) : defaultConfig()
     } catch {
       config = defaultConfig()
     }

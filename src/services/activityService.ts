@@ -1,7 +1,8 @@
 import type { ActivityEntry, ActivityHistory } from '../types/session'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { loadActivity, saveActivity } from './appConfig'
 import { useSessionStore } from '../stores/sessionStore'
+import { resolveVaultMarkdownPath } from './pathSecurity'
+import { writeTextFileAtomically } from './safeFileWriter'
 
 class ActivityService {
   private history: ActivityHistory = { entries: [] }
@@ -132,7 +133,7 @@ class ActivityService {
     const entries = filteredEntries ?? this.history.entries
     if (entries.length === 0) return null
 
-    const exportPath = `${this.currentFolder}/statistics.md`
+    const exportPath = resolveVaultMarkdownPath(this.currentFolder, 'statistics.md')
 
     // Group by date
     const dailyTotals = new Map<string, number>()
@@ -198,7 +199,7 @@ class ActivityService {
     }
 
     try {
-      await writeTextFile(exportPath, content)
+      await writeTextFileAtomically(exportPath, content)
       return exportPath
     } catch (e) {
       console.error('Failed to export statistics:', e)

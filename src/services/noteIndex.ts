@@ -38,11 +38,28 @@ async function metadata(path: string): Promise<FileMetadata | null> {
   try {
     const info = await stat(path)
     const value = info.mtime
-    const mtimeMs = value instanceof Date ? value.getTime() : typeof value === 'number' && Number.isFinite(value) ? value : null
+    const dateMs = value instanceof Date ? value.getTime() : null
+    const mtimeMs = dateMs !== null && Number.isFinite(dateMs)
+      ? dateMs
+      : typeof value === 'number' && Number.isFinite(value) ? value : null
     return { signature: String(info.size) + '|' + String(mtimeMs ?? ''), mtimeMs }
   } catch {
     return null
   }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex++
+      if (index >= items.length) return
+      results[index] = await task(items[index])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
 }
 
 export class NoteIndex {
@@ -72,19 +89,18 @@ export class NoteIndex {
     await this.collect(folder, files, folder, true)
     const active = new Set(files)
     for (const key of this.cache.keys()) if (!active.has(key)) this.cache.delete(key)
-    const sessions: Session[] = []
-    for (const path of files) {
+    const indexed = await mapWithConcurrency(files, 12, async path => {
       const fileMetadata = await metadata(path)
       const cached = this.cache.get(path)
       if (cached && fileMetadata && cached.signature === fileMetadata.signature) {
-        sessions.push(cached.session)
-        continue
+        return cached.session
       }
       const session = await this.readSession(path, folder, options, fileMetadata?.mtimeMs ?? Date.now())
-      if (!session) continue
+      if (!session) return null
       this.cache.set(path, { signature: fileMetadata?.signature || String(session.duration_ms) + '|' + session.preview, session })
-      sessions.push(session)
-    }
+      return session
+    })
+    const sessions = indexed.filter((session): session is Session => session !== null)
     this.revision += 1
     return sessions
   }
@@ -132,7 +148,12 @@ export class NoteIndex {
         tags: Array.isArray(parsed.data.tags) ? parsed.data.tags as string[] : typeof parsed.data.tags === 'string' ? [parsed.data.tags] : [],
         notePath: path, frontmatterKey: options.frontmatterKey, parseError: parsedTime.error, relativePath,
         preview: body.length > 120 ? body.slice(0, 117) + '...' : body || undefined,
-        timeEstimate: parsed.data[options.timeEstimateKey || 'timeEstimate'] == null ? undefined : Number(parsed.data[options.timeEstimateKey || 'timeEstimate']),
+        timeEstimate: (() => {
+          const value = parsed.data[options.timeEstimateKey || 'timeEstimate']
+          if (value == null) return undefined
+          const minutes = Number(value)
+          return Number.isFinite(minutes) && minutes >= 0 ? minutes : undefined
+        })(),
         frontmatterFields: Object.keys(fields).length ? fields : undefined,
       }
     } catch (error) {

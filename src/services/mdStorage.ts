@@ -1,6 +1,7 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import { readTextFile, readDir, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { readTextFile, readDir } from '@tauri-apps/plugin-fs';
 import { parseFrontmatter, parseTimeToMs } from './frontmatterParser';
+import { validateFrontmatterKey } from './pathSecurity';
 import type { Session } from '../types/session';
 
 export { parseFrontmatter, parseTimeToMs };
@@ -21,7 +22,7 @@ export async function selectNotesFolder(): Promise<FolderSelectionResult | null>
 async function detectObsidianVaultName(folderPath: string): Promise<string | null> {
   try {
     const appJsonPath = `${folderPath}/.obsidian/app.json`;
-    const content = await readTextFile(appJsonPath, { baseDir: BaseDirectory.AppData });
+    const content = await readTextFile(appJsonPath);
     const data = JSON.parse(content);
     return data.vaultName || data.vault || null;
   } catch {
@@ -30,12 +31,13 @@ async function detectObsidianVaultName(folderPath: string): Promise<string | nul
 }
 
 export function updateFrontmatter(content: string, key: string, value: string | number | string[] | number[]): string {
+  const safeKey = validateFrontmatterKey(key)
   // Handle number values (timeEstimate)
   if (typeof value === 'number') {
     const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
     const match = content.match(frontmatterRegex);
     if (!match) {
-      return `---\n${key}: ${value}\n---\n` + content;
+      return `---\n${safeKey}: ${value}\n---\n` + content;
     }
     const yamlBlock = match[1];
     const rest = content.substring(match[0].length);
@@ -43,14 +45,14 @@ export function updateFrontmatter(content: string, key: string, value: string | 
     let found = false;
     const newLines = lines.map(line => {
       const trimmed = line.trim();
-      if (trimmed.startsWith(key + ':')) {
+      if (trimmed.startsWith(safeKey + ':')) {
         found = true;
-        return `${key}: ${value}`;
+        return `${safeKey}: ${value}`;
       }
       return line;
     });
     if (!found) {
-      newLines.push(`${key}: ${value}`);
+      newLines.push(`${safeKey}: ${value}`);
     }
     const newYaml = '---\n' + newLines.join('\n') + '\n---\n';
     return newYaml + rest;
@@ -59,7 +61,7 @@ export function updateFrontmatter(content: string, key: string, value: string | 
   const match = content.match(frontmatterRegex);
   if (!match) {
     const val = Array.isArray(value) ? `[${value.join(', ')}]` : value;
-    return `---\n${key}: ${val}\n---\n` + content;
+    return `---\n${safeKey}: ${val}\n---\n` + content;
   }
   const yamlBlock = match[1];
   const rest = content.substring(match[0].length);
@@ -67,19 +69,35 @@ export function updateFrontmatter(content: string, key: string, value: string | 
   let found = false;
   const newLines = lines.map(line => {
     const trimmed = line.trim();
-    if (trimmed.startsWith(key + ':')) {
+    if (trimmed.startsWith(safeKey + ':')) {
       found = true;
       const val = Array.isArray(value) ? `[${value.join(', ')}]` : value;
-      return `${key}: ${val}`;
+      return `${safeKey}: ${val}`;
     }
     return line;
   });
   if (!found) {
     const val = Array.isArray(value) ? `[${value.join(', ')}]` : value;
-    newLines.push(`${key}: ${val}`);
+    newLines.push(`${safeKey}: ${val}`);
   }
   const newYaml = '---\n' + newLines.join('\n') + '\n---\n';
   return newYaml + rest;
+}
+
+/** Remove one top-level frontmatter key without rewriting the note body. */
+export function removeFrontmatterKey(content: string, key: string): string {
+  const safeKey = validateFrontmatterKey(key)
+  const match = content.match(/^(---[ \t]*\r?\n)([\s\S]*?)(\r?\n---[ \t]*\r?\n)/)
+  if (!match) return content
+
+  const newline = match[2].includes('\r\n') ? '\r\n' : '\n'
+  const lines = match[2].split(/\r?\n/)
+  const remaining = lines.filter(line => {
+    const colonIndex = line.indexOf(':')
+    return colonIndex < 0 || line.slice(0, colonIndex).trim() !== safeKey
+  })
+  if (remaining.length === lines.length) return content
+  return match[1] + remaining.join(newline) + match[3] + content.slice(match[0].length)
 }
 
 function isIgnoredNotesDirectory(name: string): boolean {
@@ -135,7 +153,9 @@ async function collectMdFiles(root: string, dir: string, sessions: Session[], fr
         const previewLines = rest.trim().split('\n').slice(0, 3).join(' ').trim()
         const preview = previewLines.length > 120 ? previewLines.substring(0, 117) + '...' : previewLines || undefined
         const ek = timeEstimateKey || 'timeEstimate'
-        const timeEstimate = data[ek] != null ? Number(data[ek]) : undefined
+        const estimateValue = data[ek]
+        const parsedEstimate = estimateValue == null ? undefined : Number(estimateValue)
+        const timeEstimate = parsedEstimate !== undefined && Number.isFinite(parsedEstimate) && parsedEstimate >= 0 ? parsedEstimate : undefined
         const frontmatterFields: Record<string, string | string[]> = {}
         if (statsFieldKeys) {
           for (const key of statsFieldKeys) if (data[key] != null) frontmatterFields[key] = data[key] as string | string[]

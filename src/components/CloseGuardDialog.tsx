@@ -35,7 +35,7 @@ export default function CloseGuardDialog({ onClose, onSaveAndClose, onDiscardAnd
       >
         <div className="flex items-center justify-between mb-4">
           <h2 id="close-guard-title" className="text-lg font-semibold text-white">{t('closeGuardTitle')}</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+          <button type="button" onClick={onClose} aria-label={t('close')} className="text-zinc-500 hover:text-zinc-300 transition-colors">
             <X size={18} />
           </button>
         </div>

@@ -66,7 +66,7 @@ export default function FrontmatterStep({
           {statsFieldKeys.map(key => (
             <span key={key} className="flex items-center gap-1 text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-300">
               {key}
-              <button onClick={() => removeField(key)} className="text-zinc-500 hover:text-red-400"><X size={10} /></button>
+              <button type="button" aria-label={`Remove ${key}`} onClick={() => removeField(key)} className="text-zinc-500 hover:text-red-400"><X size={10} /></button>
             </span>
           ))}
         </div>
@@ -78,7 +78,7 @@ export default function FrontmatterStep({
             placeholder="Add field..."
             className="flex-1 bg-zinc-950 px-3 py-1.5 rounded text-sm focus:ring-1 focus:ring-zinc-700"
           />
-          <motion.button whileTap={{ scale: 0.95 }} onClick={addField} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400"><Plus size={14} /></motion.button>
+          <motion.button type="button" aria-label="Add field" whileTap={{ scale: 0.95 }} onClick={addField} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-zinc-400"><Plus size={14} /></motion.button>
         </div>
       </div>
     </div>

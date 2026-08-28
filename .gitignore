@@ -31,3 +31,6 @@ USER.md
 SKILL.md
 .agents/
 .hermes/
+
+# Local release test artifacts — publish through GitHub Releases, not Git
+test-artifacts/
