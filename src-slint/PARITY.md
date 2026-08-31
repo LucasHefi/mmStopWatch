@@ -10,7 +10,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Note list | Virtual rows, pinning, edit, preview, Obsidian open, active state | Complete (core) | Every row action works and a large vault keeps stable memory |
 | New note | Safe path validation, collision handling, initial time and tags | Complete | New Markdown is compatible with the existing app |
 | Timers | Multiple independent monotonic timers, start/pause/discard/save | Complete (core) | Timer drift and duplicate-save tests pass |
-| Timer cards | Colour/glow, hundredths, presets, custom estimate, progress, expiry | In progress | Running card visually matches and all controls work |
+| Timer cards | Colour/glow, hundredths, presets, custom estimate, progress, expiry, responsive 1–4 column layouts | In progress (responsive grid complete) | Running card visually matches, wide layouts form the requested grid, and narrow windows fall back without clipping |
 | Timer table | Sortable table mode and persisted order | Partial | Mode/order survive restart and match card data |
 | Recovery | Checkpoint active timers and restore paused after restart | Complete (core) | Crash/restart scenario restores elapsed value |
 | Close guard | Save all, discard all, cancel close | Complete | Active timers cannot be lost accidentally |
@@ -27,6 +27,14 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Updater/integration | Update check/install, native notifications, file/URL opening | Missing | Platform boundary checks pass on packaged build |
 | Performance | Smooth foreground ticks, low idle work, less than 100 MB release RSS | Partial | Idle, active timer and large-vault scenarios stay below 100 MB |
 | Packaging | Linux/Windows native bundles and release metadata | Missing | Clean release build installs and starts on target platforms |
+
+## Measured native baseline
+
+Release build measured on 2026-08-31 with the software renderer and a 43-note vault:
+
+- idle: 24.7 MB RSS / 16.0 MB PSS, 2.6% of one CPU core;
+- four active 50 ms timers: 31.4 MB RSS / 22.8 MB PSS, 14.6% of one CPU core;
+- swap usage: 0 MB in both scenarios.
 
 ## Visual reference
 

@@ -9,7 +9,10 @@ mod storage;
 mod timer;
 
 use activity::append_activity;
-use app_state::{AppState, COLORS, note_rows, refresh_models, set_status, timer_row};
+use app_state::{
+    AppState, COLORS, note_rows, refresh_grid_row, refresh_models, set_status, sync_grid_model,
+    timer_row,
+};
 use chrono::Local;
 use config::AppConfig;
 use integration::{obsidian_url, open_url};
@@ -114,6 +117,11 @@ fn main() -> Result<(), slint::PlatformError> {
     } else if let Some(vault) = config.vault_path.clone() {
         let _ = config.adopt_vault(vault);
     }
+    if let Ok(columns) = std::env::var("MMSTOPWATCH_PREVIEW_COLUMNS")
+        && let Ok(columns) = columns.parse::<usize>()
+    {
+        config.timer_layout.mode = format!("grid-{}", columns.clamp(1, 4));
+    }
 
     let ui = AppWindow::new()?;
     ui.set_vault_path(
@@ -127,9 +135,14 @@ fn main() -> Result<(), slint::PlatformError> {
     sync_settings(&ui, &config);
     ui.set_onboarding_visible(config.vault_path.is_none());
     ui.set_new_note_filename(Local::now().format("%Y-%m-%d.md").to_string().into());
-    let diagnostics = std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some();
+    let preview_count = std::env::var("MMSTOPWATCH_PREVIEW_TIMERS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| usize::from(std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some()));
+    let diagnostics = preview_count > 0;
     let state = Rc::new(RefCell::new(AppState::new(config, diagnostics)));
     ui.set_timers(ModelRc::from(state.borrow().timer_model.clone()));
+    ui.set_timer_grid(ModelRc::from(state.borrow().timer_grid_model.clone()));
 
     {
         let weak = ui.as_weak();
@@ -282,15 +295,22 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     state.borrow_mut().restore_timers();
 
-    if std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some() {
+    if preview_count > 0 {
         let mut state = state.borrow_mut();
-        if let Some(note) = state.notes.first() {
+        let preview_notes = state
+            .notes
+            .iter()
+            .take(preview_count)
+            .cloned()
+            .collect::<Vec<_>>();
+        for (index, note) in preview_notes.iter().enumerate() {
+            let rgb = COLORS[index % COLORS.len()];
             let mut timer = NativeTimer::new(
                 note.path.to_string_lossy().into_owned(),
                 note.name.clone(),
                 note.duration_ms,
                 note.time_estimate_minutes.or(Some(45)),
-                slint::Color::from_rgb_u8(52, 211, 153),
+                slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8),
             );
             timer.toggle();
             state.timers.push(timer);
@@ -336,6 +356,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 set_status(&ui, format!("Rozložení nelze uložit: {error}"), true);
             }
             ui.set_layout_columns(columns);
+            sync_grid_model(&state);
         });
     }
 
@@ -782,6 +803,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     note.time_estimate_minutes = (minutes > 0).then_some(minutes as u64);
                 }
                 state.timer_model.set_row_data(index as usize, row);
+                refresh_grid_row(&state, index as usize);
                 state.checkpoint_timers();
             }
         });
@@ -799,6 +821,7 @@ fn main() -> Result<(), slint::PlatformError> {
             });
             if let Some(row) = row {
                 state.timer_model.set_row_data(index as usize, row);
+                refresh_grid_row(&state, index as usize);
                 state.checkpoint_timers();
             }
         });
@@ -877,9 +900,18 @@ fn main() -> Result<(), slint::PlatformError> {
         timer_tick.start(TimerMode::Repeated, Duration::from_millis(50), move || {
             let Some(_ui) = weak.upgrade() else { return };
             let state = state.borrow();
+            let columns = state.layout_columns();
+            let mut last_grid_row = None;
             for (index, timer) in state.timers.iter().enumerate() {
                 if timer.is_running() {
                     state.timer_model.set_row_data(index, timer_row(timer));
+                    if columns > 1 {
+                        let grid_row = index / columns;
+                        if last_grid_row != Some(grid_row) {
+                            refresh_grid_row(&state, index);
+                            last_grid_row = Some(grid_row);
+                        }
+                    }
                 }
             }
             expiration_frame = (expiration_frame + 1) % 20;

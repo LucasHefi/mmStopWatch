@@ -23,6 +23,17 @@ export struct TimerRow {
     expired: bool,
 }
 
+export struct TimerGridRow {
+    a: TimerRow,
+    b: TimerRow,
+    c: TimerRow,
+    d: TimerRow,
+    has-a: bool,
+    has-b: bool,
+    has-c: bool,
+    has-d: bool,
+}
+
 export struct StatsRow {
     name: string,
     duration: string,
@@ -55,10 +66,12 @@ component SmallButton inherits Rectangle {
     in property <string> label;
     in property <bool> active: false;
     in property <bool> danger: false;
+    in property <bool> enabled: true;
     callback clicked;
     height: 30px;
     border-radius: 7px;
-    background: touch.pressed ? #3f3f46 : touch.has-hover ? #303036 : active ? #27272a : #18181b;
+    background: touch.pressed ? #3f3f46 : touch.has-hover && enabled ? #303036 : active ? #27272a : #18181b;
+    opacity: enabled ? 1 : 0.35;
     border-width: 1px;
     border-color: danger ? #ef444455 : active ? #71717a66 : #ffffff0b;
 
@@ -66,11 +79,12 @@ component SmallButton inherits Rectangle {
         text: root.label;
         color: root.danger ? #fb7185 : root.active ? #fafafa : #a1a1aa;
         font-size: 11px;
-        font-weight: root.active ? 600 : 400;
+        // Keep the button's layout metrics stable while the active state changes.
+        font-weight: 500;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
-    touch := TouchArea { clicked => root.clicked(); }
+    touch := TouchArea { enabled: root.enabled; clicked => root.clicked(); }
 }
 
 component RoundAction inherits Rectangle {
@@ -642,12 +656,14 @@ export component AppWindow inherits Window {
 
     in property <[NoteRow]> notes;
     in property <[TimerRow]> timers;
+    in property <[TimerGridRow]> timer-grid;
     in-out property <string> vault-path;
     in property <string> status-message: "Vyberte složku s Markdown poznámkami.";
     in property <bool> status-error: false;
     in property <int> timer-count: 0;
     in-out property <bool> table-view: false;
     in-out property <int> layout-columns: 1;
+    property <length> viewport-width: 900px;
     in property <int> note-count: 0;
     in property <string> total-duration: "00:00:00";
     in-out property <bool> onboarding-visible: false;
@@ -690,6 +706,14 @@ export component AppWindow inherits Window {
     in property <float> glow-a-y: 18;
     in property <float> glow-b-x: 70;
     in property <float> glow-b-y: 70;
+    property <bool> selected-layout-feasible: root.layout-columns == 1
+        || (root.layout-columns == 2 && root.viewport-width >= 1086px)
+        || (root.layout-columns == 3 && root.viewport-width >= 1461px)
+        || (root.layout-columns == 4 && root.viewport-width >= 1836px);
+
+    changed width => {
+        root.viewport-width = root.width;
+    }
 
     callback choose-folder;
     callback refresh;
@@ -762,10 +786,10 @@ export component AppWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
                     SmallButton { width: 31px; label: "☷"; active: !root.table-view; clicked => root.set-timer-view(false); }
                     SmallButton { width: 31px; label: "▦"; active: root.table-view; clicked => root.set-timer-view(true); }
-                    SmallButton { width: 31px; label: "1"; active: root.layout-columns == 1; clicked => root.set-layout-columns(1); }
-                    SmallButton { width: 31px; label: "2"; active: root.layout-columns == 2; clicked => root.set-layout-columns(2); }
-                    SmallButton { width: 31px; label: "3"; active: root.layout-columns == 3; clicked => root.set-layout-columns(3); }
-                    SmallButton { width: 31px; label: "4"; active: root.layout-columns == 4; clicked => root.set-layout-columns(4); }
+                    SmallButton { width: 31px; label: "1"; active: root.layout-columns == 1 || !root.selected-layout-feasible; clicked => root.set-layout-columns(1); }
+                    SmallButton { width: 31px; label: "2"; enabled: root.viewport-width >= 1086px; active: root.layout-columns == 2 && root.selected-layout-feasible; clicked => root.set-layout-columns(2); }
+                    SmallButton { width: 31px; label: "3"; enabled: root.viewport-width >= 1461px; active: root.layout-columns == 3 && root.selected-layout-feasible; clicked => root.set-layout-columns(3); }
+                    SmallButton { width: 31px; label: "4"; enabled: root.viewport-width >= 1836px; active: root.layout-columns == 4 && root.selected-layout-feasible; clicked => root.set-layout-columns(4); }
                 }
 
                 if root.timer-count == 0 : Rectangle {
@@ -779,7 +803,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.timer-count > 0 && !root.table-view : ListView {
+                if root.timer-count > 0 && !root.table-view && (root.layout-columns == 1 || !root.selected-layout-feasible) : ListView {
                     for timer[index] in root.timers : TimerCard {
                         timer: timer;
                         row-index: index;
@@ -787,6 +811,21 @@ export component AppWindow inherits Window {
                         save => root.save-timer(index);
                         discard => root.discard-timer(index);
                         set-estimate(minutes) => root.set-timer-estimate(index, minutes);
+                    }
+                }
+
+                if root.timer-count > 0 && !root.table-view && root.layout-columns > 1 && root.selected-layout-feasible : ListView {
+                    for group[row-index] in root.timer-grid : HorizontalLayout {
+                        height: 191px;
+                        spacing: 7px;
+                        if group.has-a : TimerCard { timer: group.a; toggle => root.toggle-timer(row-index * root.layout-columns); save => root.save-timer(row-index * root.layout-columns); discard => root.discard-timer(row-index * root.layout-columns); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns, minutes); }
+                        if !group.has-a : Rectangle { background: transparent; }
+                        if group.has-b : TimerCard { timer: group.b; toggle => root.toggle-timer(row-index * root.layout-columns + 1); save => root.save-timer(row-index * root.layout-columns + 1); discard => root.discard-timer(row-index * root.layout-columns + 1); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 1, minutes); }
+                        if !group.has-b : Rectangle { background: transparent; }
+                        if root.layout-columns > 2 && group.has-c : TimerCard { timer: group.c; toggle => root.toggle-timer(row-index * root.layout-columns + 2); save => root.save-timer(row-index * root.layout-columns + 2); discard => root.discard-timer(row-index * root.layout-columns + 2); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 2, minutes); }
+                        if root.layout-columns > 2 && !group.has-c : Rectangle { background: transparent; }
+                        if root.layout-columns > 3 && group.has-d : TimerCard { timer: group.d; toggle => root.toggle-timer(row-index * root.layout-columns + 3); save => root.save-timer(row-index * root.layout-columns + 3); discard => root.discard-timer(row-index * root.layout-columns + 3); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 3, minutes); }
+                        if root.layout-columns > 3 && !group.has-d : Rectangle { background: transparent; }
                     }
                 }
 

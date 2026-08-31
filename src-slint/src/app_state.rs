@@ -1,10 +1,10 @@
 use crate::{
-    AppWindow, NoteRow, TimerRow,
+    AppWindow, NoteRow, TimerGridRow, TimerRow,
     config::{AppConfig, TimerCheckpoint, load_timer_checkpoints, save_timer_checkpoints},
     storage::{Note, format_stopwatch, format_time, scan_notes},
     timer::NativeTimer,
 };
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model, ModelRc, SharedString, VecModel};
 use std::{path::PathBuf, rc::Rc};
 
 pub const COLORS: [u32; 8] = [
@@ -17,6 +17,7 @@ pub struct AppState {
     pub visible_notes: Vec<usize>,
     pub timers: Vec<NativeTimer>,
     pub timer_model: Rc<VecModel<TimerRow>>,
+    pub timer_grid_model: Rc<VecModel<TimerGridRow>>,
     pub search: String,
     diagnostics: bool,
 }
@@ -29,6 +30,7 @@ impl AppState {
             visible_notes: Vec::new(),
             timers: Vec::new(),
             timer_model: Rc::new(VecModel::default()),
+            timer_grid_model: Rc::new(VecModel::default()),
             search: String::new(),
             diagnostics,
         }
@@ -127,6 +129,16 @@ impl AppState {
             eprintln!("timer checkpoint failed: {error}");
         }
     }
+
+    pub fn layout_columns(&self) -> usize {
+        self.config
+            .timer_layout
+            .mode
+            .strip_prefix("grid-")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1)
+            .clamp(1, 4)
+    }
 }
 
 pub fn note_rows(state: &AppState) -> ModelRc<NoteRow> {
@@ -192,11 +204,60 @@ pub fn refresh_models(ui: &AppWindow, state: &AppState) {
     state
         .timer_model
         .set_vec(state.timers.iter().map(timer_row).collect::<Vec<_>>());
+    sync_grid_model(state);
     ui.set_timer_count(state.timers.len() as i32);
     ui.set_note_count(state.notes.len() as i32);
     ui.set_total_duration(
         format_time(state.notes.iter().map(|note| note.duration_ms).sum()).into(),
     );
+}
+
+pub fn sync_grid_model(state: &AppState) {
+    let columns = state.layout_columns();
+    if columns == 1 {
+        state.timer_grid_model.set_vec(Vec::new());
+        return;
+    }
+    let mut rows = Vec::with_capacity(state.timers.len().div_ceil(columns));
+    for start in (0..state.timers.len()).step_by(columns) {
+        rows.push(grid_row(state, start, columns));
+    }
+    state.timer_grid_model.set_vec(rows);
+}
+
+pub fn refresh_grid_row(state: &AppState, timer_index: usize) {
+    let columns = state.layout_columns();
+    if columns == 1 {
+        return;
+    }
+    let model_index = timer_index / columns;
+    let start = model_index * columns;
+    state
+        .timer_grid_model
+        .set_row_data(model_index, grid_row(state, start, columns));
+}
+
+fn grid_row(state: &AppState, start: usize, columns: usize) -> TimerGridRow {
+    let row = |offset: usize| {
+        if offset >= columns {
+            return TimerRow::default();
+        }
+        state
+            .timers
+            .get(start + offset)
+            .map(timer_row)
+            .unwrap_or_default()
+    };
+    TimerGridRow {
+        a: row(0),
+        b: row(1),
+        c: row(2),
+        d: row(3),
+        has_a: state.timers.get(start).is_some(),
+        has_b: columns > 1 && state.timers.get(start + 1).is_some(),
+        has_c: columns > 2 && state.timers.get(start + 2).is_some(),
+        has_d: columns > 3 && state.timers.get(start + 3).is_some(),
+    }
 }
 
 pub fn set_status(ui: &AppWindow, message: impl Into<SharedString>, error: bool) {
