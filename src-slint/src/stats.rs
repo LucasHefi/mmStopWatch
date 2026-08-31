@@ -20,6 +20,16 @@ pub struct DayTotal {
     pub goal_met: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct CalendarDay {
+    pub date: NaiveDate,
+    pub duration_ms: u64,
+    pub goal_progress: f32,
+    pub goal_met: bool,
+    pub in_month: bool,
+    pub today: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct StatsSnapshot {
     pub total_ms: u64,
@@ -34,6 +44,8 @@ pub struct StatsSnapshot {
     pub consistency_percent: u32,
     pub weekly_delta_percent: i32,
     pub daily: Vec<DayTotal>,
+    pub calendar_month: String,
+    pub calendar: Vec<CalendarDay>,
     pub top_notes: Vec<NoteTotal>,
 }
 
@@ -114,12 +126,46 @@ fn snapshot_from_entries(
             }
         })
         .collect();
+    (result.calendar_month, result.calendar) = calendar_month(&days, today, daily_goal_ms);
     result.top_notes = notes.into_values().collect();
     result
         .top_notes
         .sort_by_key(|note| std::cmp::Reverse(note.duration_ms));
     result.top_notes.truncate(12);
     result
+}
+
+fn calendar_month(
+    days: &BTreeMap<NaiveDate, u64>,
+    today: NaiveDate,
+    daily_goal_ms: u64,
+) -> (String, Vec<CalendarDay>) {
+    let first = today.with_day(1).unwrap_or(today);
+    let start = first - Duration::days(i64::from(first.weekday().num_days_from_monday()));
+    let calendar = (0..42)
+        .map(|offset| {
+            let date = start + Duration::days(offset);
+            let in_month = date.month() == today.month() && date.year() == today.year();
+            let duration_ms = if in_month {
+                days.get(&date).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            CalendarDay {
+                date,
+                duration_ms,
+                goal_progress: if daily_goal_ms == 0 {
+                    0.0
+                } else {
+                    (duration_ms as f32 / daily_goal_ms as f32).clamp(0.0, 1.0)
+                },
+                goal_met: daily_goal_ms > 0 && duration_ms >= daily_goal_ms,
+                in_month,
+                today: date == today,
+            }
+        })
+        .collect();
+    (first.format("%m / %Y").to_string(), calendar)
 }
 
 fn streak(days: &BTreeMap<NaiveDate, u64>, today: NaiveDate) -> u32 {
@@ -236,5 +282,21 @@ mod tests {
             local_noon(today),
         );
         assert_eq!(result.streak_days, 0);
+    }
+
+    #[test]
+    fn calendar_is_a_monday_first_six_week_grid() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
+        let result = snapshot_from_entries(&[entry(today, 60_000)], 60_000, local_noon(today));
+        assert_eq!(result.calendar.len(), 42);
+        assert_eq!(result.calendar[0].date.weekday().num_days_from_monday(), 0);
+        assert!(result.calendar.iter().any(|day| day.today && day.goal_met));
+        assert!(
+            result
+                .calendar
+                .iter()
+                .filter(|day| !day.in_month)
+                .all(|day| day.duration_ms == 0)
+        );
     }
 }

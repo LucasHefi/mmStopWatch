@@ -13,7 +13,7 @@ use app_state::{
     AppState, COLORS, note_rows, refresh_grid_row, refresh_models, set_status, sync_grid_model,
     timer_row,
 };
-use chrono::Local;
+use chrono::{Datelike, Local};
 use config::AppConfig;
 use integration::{obsidian_url, open_url};
 use notification::show as show_notification;
@@ -43,6 +43,21 @@ fn write_snapshot(ui: &AppWindow, path: &Path) -> io::Result<()> {
         pixels.height()
     )?;
     output.write_all(pixels.as_bytes())
+}
+
+fn stats_calendar_day_row(day: &stats::CalendarDay) -> StatsCalendarDayRow {
+    StatsCalendarDayRow {
+        day: day.date.day().to_string().into(),
+        duration: if day.duration_ms == 0 {
+            "".into()
+        } else {
+            storage::format_time(day.duration_ms).into()
+        },
+        progress: day.goal_progress,
+        goal_met: day.goal_met,
+        in_month: day.in_month,
+        today: day.today,
+    }
 }
 
 fn sync_settings(ui: &AppWindow, config: &AppConfig) {
@@ -519,6 +534,22 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_stats_streak(snapshot.streak_days as i32);
             ui.set_stats_consistency(snapshot.consistency_percent as i32);
             ui.set_stats_weekly_delta(snapshot.weekly_delta_percent);
+            ui.set_stats_calendar_month(snapshot.calendar_month.into());
+            ui.set_stats_calendar(ModelRc::new(slint::VecModel::from(
+                snapshot
+                    .calendar
+                    .chunks_exact(7)
+                    .map(|week| StatsCalendarWeekRow {
+                        monday: stats_calendar_day_row(&week[0]),
+                        tuesday: stats_calendar_day_row(&week[1]),
+                        wednesday: stats_calendar_day_row(&week[2]),
+                        thursday: stats_calendar_day_row(&week[3]),
+                        friday: stats_calendar_day_row(&week[4]),
+                        saturday: stats_calendar_day_row(&week[5]),
+                        sunday: stats_calendar_day_row(&week[6]),
+                    })
+                    .collect::<Vec<_>>(),
+            )));
             ui.set_stats_days(ModelRc::new(slint::VecModel::from(
                 snapshot
                     .daily
@@ -1018,7 +1049,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if let Ok(tab) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_TAB")
                     && let Ok(tab) = tab.parse::<i32>()
                 {
-                    ui.set_stats_tab(tab.clamp(0, 1));
+                    ui.set_stats_tab(tab.clamp(0, 2));
                 }
             }
             "new-note" => ui.set_new_note_open(true),
