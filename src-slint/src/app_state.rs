@@ -1,7 +1,8 @@
 use crate::{
     AppWindow, NoteRow, TimerGridRow, TimerRow,
     config::{AppConfig, TimerCheckpoint, load_timer_checkpoints, save_timer_checkpoints},
-    storage::{Note, format_stopwatch, format_time, scan_notes},
+    i18n,
+    storage::{Note, format_stopwatch, format_time, scan_notes_detailed},
     timer::NativeTimer,
 };
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -19,6 +20,7 @@ pub struct AppState {
     pub timer_model: Rc<VecModel<TimerRow>>,
     pub timer_grid_model: Rc<VecModel<TimerGridRow>>,
     pub search: String,
+    pub scan_warnings: Vec<String>,
     diagnostics: bool,
 }
 
@@ -32,6 +34,7 @@ impl AppState {
             timer_model: Rc::new(VecModel::default()),
             timer_grid_model: Rc::new(VecModel::default()),
             search: String::new(),
+            scan_warnings: Vec::new(),
             diagnostics,
         }
     }
@@ -42,12 +45,15 @@ impl AppState {
             .vault_path
             .as_deref()
             .ok_or_else(|| "Nejdřív vyberte složku s poznámkami.".to_owned())?;
-        self.notes = scan_notes(
+        let scan = scan_notes_detailed(
             root,
             &self.config.frontmatter_key,
             &self.config.time_estimate_key,
+            &self.config.stats_field_keys,
         )
         .map_err(|error| error.to_string())?;
+        self.notes = scan.notes;
+        self.scan_warnings = scan.warnings;
         self.apply_filter();
         Ok(self.notes.len())
     }
@@ -221,7 +227,7 @@ pub fn note_rows(state: &AppState) -> ModelRc<NoteRow> {
     ModelRc::new(VecModel::from(rows))
 }
 
-pub fn timer_row(timer: &NativeTimer) -> TimerRow {
+pub fn timer_row(timer: &NativeTimer, language: &str) -> TimerRow {
     let current = timer.current_elapsed_ms();
     let estimate_minutes = timer.time_estimate_minutes.unwrap_or(0);
     let estimate_ms = estimate_minutes.saturating_mul(60_000);
@@ -234,11 +240,21 @@ pub fn timer_row(timer: &NativeTimer) -> TimerRow {
         estimate_minutes: estimate_minutes as i32,
         estimate_progress: timer.estimate_progress(),
         estimate_status: if estimate_minutes == 0 {
-            "Bez odhadu".into()
+            i18n::tr_ref(language, "noEstimate").into()
         } else if current >= estimate_ms {
-            format!("Překročeno o {}", format_time(current - estimate_ms)).into()
+            format!(
+                "{} {}",
+                i18n::tr_ref(language, "expired"),
+                format_time(current - estimate_ms)
+            )
+            .into()
         } else {
-            format!("Zbývá {}", format_time(estimate_ms - current)).into()
+            format!(
+                "{} {}",
+                i18n::tr_ref(language, "remaining"),
+                format_time(estimate_ms - current)
+            )
+            .into()
         },
         expired: estimate_minutes > 0 && current >= estimate_ms,
     }
@@ -246,12 +262,26 @@ pub fn timer_row(timer: &NativeTimer) -> TimerRow {
 
 pub fn refresh_models(ui: &AppWindow, state: &AppState) {
     ui.set_notes(note_rows(state));
-    state
-        .timer_model
-        .set_vec(state.timers.iter().map(timer_row).collect::<Vec<_>>());
+    state.timer_model.set_vec(
+        state
+            .timers
+            .iter()
+            .map(|timer| timer_row(timer, &state.config.language))
+            .collect::<Vec<_>>(),
+    );
     sync_grid_model(state);
     ui.set_timer_count(state.timers.len() as i32);
     ui.set_note_count(state.notes.len() as i32);
+    ui.set_scan_warning(if state.scan_warnings.is_empty() {
+        "".into()
+    } else {
+        format!(
+            "⚠ {} souborů nebo polí vyžaduje kontrolu: {}",
+            state.scan_warnings.len(),
+            state.scan_warnings[0]
+        )
+        .into()
+    });
     ui.set_total_duration(
         format_time(state.notes.iter().map(|note| note.duration_ms).sum()).into(),
     );
@@ -290,7 +320,7 @@ fn grid_row(state: &AppState, start: usize, columns: usize) -> TimerGridRow {
         state
             .timers
             .get(start + offset)
-            .map(timer_row)
+            .map(|timer| timer_row(timer, &state.config.language))
             .unwrap_or_default()
     };
     TimerGridRow {

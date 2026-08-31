@@ -208,6 +208,7 @@ mod tests {
             preview: String::new(),
             tags: vec!["dev".into()],
             time_estimate_minutes: Some(45),
+            fields: HashMap::new(),
         }];
         let make_entry = |date: NaiveDate, duration_ms: u64, operation: &str| ActivityEntry {
             timestamp: local_noon(date).timestamp_millis(),

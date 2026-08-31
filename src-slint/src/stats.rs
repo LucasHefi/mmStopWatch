@@ -1,6 +1,7 @@
 use crate::{
     activity::{ActivityEntry, load_activity},
     config::AppConfig,
+    storage::Note,
 };
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Timelike};
 use std::collections::{BTreeMap, HashMap};
@@ -44,6 +45,14 @@ pub struct TrendTotal {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct BreakdownTotal {
+    pub field: String,
+    pub value: String,
+    pub duration_ms: u64,
+    pub count: usize,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct StatsSnapshot {
     pub total_ms: u64,
     pub today_ms: u64,
@@ -68,11 +77,57 @@ pub struct StatsSnapshot {
     pub night_percent: u32,
     pub productivity_slope_ms: i64,
     pub top_notes: Vec<NoteTotal>,
+    pub breakdown: Vec<BreakdownTotal>,
 }
 
-pub fn snapshot(config: &AppConfig) -> StatsSnapshot {
+pub fn snapshot(config: &AppConfig, notes: &[Note]) -> StatsSnapshot {
     let entries = load_activity(config);
-    snapshot_from_entries(&entries, config.daily_goal_ms, Local::now())
+    let mut snapshot = snapshot_from_entries(&entries, config.daily_goal_ms, Local::now());
+    snapshot.breakdown = field_breakdown(&entries, notes, &config.stats_field_keys);
+    snapshot
+}
+
+fn field_breakdown(
+    entries: &[ActivityEntry],
+    notes: &[Note],
+    field_keys: &[String],
+) -> Vec<BreakdownTotal> {
+    let notes_by_path = notes
+        .iter()
+        .map(|note| (note.path.to_string_lossy().into_owned(), note))
+        .collect::<HashMap<_, _>>();
+    let mut totals: HashMap<(String, String), BreakdownTotal> = HashMap::new();
+    for entry in entries {
+        let Some(note) = notes_by_path.get(&entry.note_path) else {
+            continue;
+        };
+        for field in field_keys {
+            let Some(values) = note.fields.get(field) else {
+                continue;
+            };
+            for value in values {
+                let total = totals
+                    .entry((field.clone(), value.clone()))
+                    .or_insert_with(|| BreakdownTotal {
+                        field: field.clone(),
+                        value: value.clone(),
+                        ..BreakdownTotal::default()
+                    });
+                total.duration_ms = total.duration_ms.saturating_add(entry.duration_ms);
+                total.count += 1;
+            }
+        }
+    }
+    let mut result = totals.into_values().collect::<Vec<_>>();
+    result.sort_by(|left, right| {
+        left.field.cmp(&right.field).then_with(|| {
+            right
+                .duration_ms
+                .cmp(&left.duration_ms)
+                .then_with(|| left.value.cmp(&right.value))
+        })
+    });
+    result
 }
 
 pub fn calendar_snapshot(config: &AppConfig, month_offset: i32) -> CalendarSnapshot {
@@ -542,5 +597,27 @@ mod tests {
         assert_eq!(result.weekday_average_ms, 90_000);
         assert_eq!(result.weekend_average_ms, 0);
         assert_eq!(result.night_percent, 0);
+    }
+
+    #[test]
+    fn breakdown_aggregates_configured_frontmatter_values() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
+        let mut first = entry(today, 60_000);
+        first.note_path = "/vault/note.md".into();
+        let notes = vec![Note {
+            path: std::path::PathBuf::from("/vault/note.md"),
+            name: "Note".into(),
+            relative_path: "note.md".into(),
+            duration_ms: 60_000,
+            preview: String::new(),
+            tags: Vec::new(),
+            time_estimate_minutes: None,
+            fields: HashMap::from([("project".into(), vec!["alpha".into(), "beta".into()])]),
+        }];
+
+        let rows = field_breakdown(&[first], &notes, &["project".into()]);
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.duration_ms == 60_000));
+        assert!(rows.iter().all(|row| row.count == 1));
     }
 }

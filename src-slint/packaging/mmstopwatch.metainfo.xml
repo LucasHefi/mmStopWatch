@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.lhefn.mmstopwatch</id>
+  <name>mmStopWatch Native</name>
+  <summary>Lightweight native time tracker for Markdown and Obsidian</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Track multiple tasks directly in Markdown frontmatter with native statistics, goals, reports and Obsidian integration.</p>
+  </description>
+  <launchable type="desktop-id">mmstopwatch.desktop</launchable>
+  <url type="homepage">https://mediamaker.cz/mmstopwatch</url>
+  <provides><binary>mmstopwatch</binary></provides>
+</component>

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=mmStopWatch Native
+Comment=Lightweight native time tracker for Markdown and Obsidian
+Exec=mmstopwatch
+Icon=mmstopwatch
+Terminal=false
+Categories=Utility;Office;
+StartupNotify=true

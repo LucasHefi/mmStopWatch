@@ -1,0 +1,48 @@
+name: Slint native release
+
+on:
+  push:
+    tags: ['slint-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
+      - run: cargo test --manifest-path src-slint/Cargo.toml --locked
+      - run: cargo clippy --manifest-path src-slint/Cargo.toml --all-targets --locked -- -D warnings
+      - run: bash src-slint/packaging/linux/package-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mmstopwatch-native-linux
+          path: src-slint/target/packages/*
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --manifest-path src-slint/Cargo.toml --locked
+      - run: cargo clippy --manifest-path src-slint/Cargo.toml --all-targets --locked -- -D warnings
+      - run: cargo build --manifest-path src-slint/Cargo.toml --release --locked
+      - run: choco install nsis --yes --no-progress
+      - shell: pwsh
+        run: |
+          $version = (Select-String -Path src-slint/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          Set-Location src-slint
+          & "$env:ProgramFiles(x86)\NSIS\makensis.exe" "/DVERSION=$version" packaging/windows/mmstopwatch.nsi
+          New-Item -ItemType Directory -Force target/packages | Out-Null
+          $installer = Get-ChildItem -Path . -Recurse -Filter "mmStopWatch-Native-*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer was not generated" }
+          Move-Item $installer.FullName target/packages/
+          Get-FileHash target/packages/*.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } | Set-Content target/packages/SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mmstopwatch-native-windows
+          path: src-slint/target/packages/*

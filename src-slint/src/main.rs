@@ -1,12 +1,16 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod activity;
 mod app_state;
 mod config;
+mod i18n;
 mod integration;
 mod notification;
 mod report;
 mod stats;
 mod storage;
 mod timer;
+mod updater;
 
 use activity::append_activity;
 use app_state::{
@@ -26,6 +30,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     rc::Rc,
+    thread,
     time::{Duration, Instant},
 };
 use storage::{create_note, write_time_estimate, write_total_duration};
@@ -95,10 +100,13 @@ fn format_productivity_slope(slope_ms: i64) -> String {
 }
 
 fn sync_settings(ui: &AppWindow, config: &AppConfig) {
+    I18n::get(ui).set_language(config.language.clone().into());
     ui.set_settings_nick(config.nick.clone().unwrap_or_default().into());
     ui.set_settings_frontmatter(config.frontmatter_key.clone().into());
     ui.set_settings_estimate_key(config.time_estimate_key.clone().into());
     ui.set_settings_time_format(config.time_format.clone().into());
+    ui.set_settings_obsidian_vault(config.obsidian_vault.clone().into());
+    ui.set_settings_stats_fields(config.stats_field_keys.join(", ").into());
     ui.set_settings_language(config.language.clone().into());
     ui.set_settings_daily_goal(format!("{:.1}", config.daily_goal_ms as f64 / 3_600_000.0).into());
     ui.set_settings_auto_refresh(config.auto_refresh_interval.to_string().into());
@@ -184,12 +192,31 @@ fn apply_editable_settings(ui: &AppWindow, config: &mut AppConfig) -> Result<(),
     if time_format.is_empty() || time_format.len() > 40 {
         return Err("Formát času nesmí být prázdný.".into());
     }
+    let stats_fields = ui
+        .get_settings_stats_fields()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if stats_fields.len() > 12 || stats_fields.iter().any(|field| !valid_key(field)) {
+        return Err("Pole statistik musí být platné klíče oddělené čárkou (nejvýše 12).".into());
+    }
 
     config.nick = (!nick.is_empty()).then_some(nick);
     config.frontmatter_key = frontmatter;
     config.time_estimate_key = estimate_key;
     config.time_format = time_format;
-    config.language = ui.get_settings_language().trim().to_owned();
+    config.obsidian_vault = ui.get_settings_obsidian_vault().trim().to_owned();
+    config.stats_field_keys = stats_fields;
+    let language = ui.get_settings_language().trim().to_owned();
+    if !i18n::Catalog::supports(&language) {
+        return Err(format!(
+            "Nepodporovaný jazyk. Použijte jeden z: {}.",
+            i18n::LANGUAGES.join(", ")
+        ));
+    }
+    config.language = language;
     config.daily_goal_ms = (goal_hours * 3_600_000.0) as u64;
     config.auto_refresh_interval = refresh;
     config.notifications.enabled = ui.get_settings_notifications();
@@ -207,6 +234,48 @@ fn apply_editable_settings(ui: &AppWindow, config: &mut AppConfig) -> Result<(),
     }
     config.timer_limit_alert.custom_message = custom_message;
     Ok(())
+}
+
+fn present_update_result(ui: &AppWindow, result: Result<updater::UpdateCheck, String>) {
+    match result {
+        Ok(update) if update.available && update.download_url.is_some() => {
+            let language = I18n::get(ui).get_language();
+            let signed = update.signature.is_some();
+            let release_note = update.notes.lines().next().unwrap_or_default();
+            let status = if signed {
+                format!(
+                    "{}: {}{}",
+                    i18n::tr(language.as_str(), "updateAvailable"),
+                    update.version,
+                    if release_note.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" — {release_note}")
+                    }
+                )
+            } else {
+                format!(
+                    "Verze {} je dostupná, ale server neposkytl podpis balíčku.",
+                    update.version
+                )
+            };
+            ui.set_update_download_url(update.download_url.unwrap_or_default().into());
+            ui.set_updater_status(status.into());
+            ui.set_update_available(signed);
+        }
+        Ok(_) => {
+            ui.set_update_download_url("".into());
+            ui.set_updater_status(
+                i18n::tr(I18n::get(ui).get_language().as_str(), "upToDate").into(),
+            );
+            ui.set_update_available(false);
+        }
+        Err(error) => {
+            ui.set_update_download_url("".into());
+            ui.set_updater_status(error.into());
+            ui.set_update_available(false);
+        }
+    }
 }
 
 fn save_all_timers(state: &mut AppState) -> Result<(), String> {
@@ -245,8 +314,23 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         config.timer_layout.mode = format!("grid-{}", columns.clamp(1, 4));
     }
+    if let Ok(language) = std::env::var("MMSTOPWATCH_PREVIEW_LANGUAGE")
+        && i18n::Catalog::supports(&language)
+    {
+        config.language = language;
+    }
 
     let ui = AppWindow::new()?;
+    I18n::get(&ui).on_tr(move |language, key| i18n::tr(language.as_str(), key.as_str()).into());
+    if let (Ok(width), Ok(height)) = (
+        std::env::var("MMSTOPWATCH_PREVIEW_WIDTH"),
+        std::env::var("MMSTOPWATCH_PREVIEW_HEIGHT"),
+    ) && let (Ok(width), Ok(height)) = (width.parse::<u32>(), height.parse::<u32>())
+    {
+        ui.set_preview_width(width.clamp(360, 3_840) as f32);
+        ui.set_preview_height(height.clamp(500, 2_160) as f32);
+        ui.set_force_compact(width < 760);
+    }
     ui.set_vault_path(
         config
             .vault_path
@@ -266,6 +350,38 @@ fn main() -> Result<(), slint::PlatformError> {
     let state = Rc::new(RefCell::new(AppState::new(config, diagnostics)));
     ui.set_timers(ModelRc::from(state.borrow().timer_model.clone()));
     ui.set_timer_grid(ModelRc::from(state.borrow().timer_grid_model.clone()));
+
+    {
+        let weak = ui.as_weak();
+        ui.on_check_update(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            ui.set_updater_status(
+                i18n::tr(I18n::get(&ui).get_language().as_str(), "notesLoading").into(),
+            );
+            ui.set_update_available(false);
+            let worker_weak = weak.clone();
+            thread::spawn(move || {
+                let result = updater::check(env!("CARGO_PKG_VERSION"));
+                let _ = worker_weak.upgrade_in_event_loop(move |ui| {
+                    present_update_result(&ui, result);
+                });
+            });
+        });
+    }
+    {
+        let weak = ui.as_weak();
+        ui.on_install_update(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let url = ui.get_update_download_url();
+            if url.is_empty() {
+                set_status(&ui, "Aktualizační balíček není dostupný.", true);
+                return;
+            }
+            if let Err(error) = open_url(url.as_str()) {
+                set_status(&ui, format!("Aktualizaci nelze otevřít: {error}"), true);
+            }
+        });
+    }
 
     {
         let weak = ui.as_weak();
@@ -669,6 +785,7 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             match state.reload() {
                 Ok(_) => {
+                    sync_settings(&ui, &state.config);
                     refresh_models(&ui, &state);
                     set_status(&ui, "Nastavení bylo uloženo.", false);
                     ui.set_settings_open(false);
@@ -726,7 +843,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let calendar_offset = stats_calendar_offset.clone();
         ui.on_open_stats(move || {
             let Some(ui) = weak.upgrade() else { return };
-            let snapshot = stats_snapshot(&state.borrow().config);
+            let snapshot = {
+                let state = state.borrow();
+                stats_snapshot(&state.config, &state.notes)
+            };
             calendar_offset.set(0);
             ui.set_stats_total(storage::format_time(snapshot.total_ms).into());
             ui.set_stats_today(storage::format_time(snapshot.today_ms).into());
@@ -797,6 +917,17 @@ fn main() -> Result<(), slint::PlatformError> {
                         name: note.name.into(),
                         duration: storage::format_time(note.duration_ms).into(),
                         count: note.count as i32,
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_stats_breakdown(ModelRc::new(slint::VecModel::from(
+                snapshot
+                    .breakdown
+                    .into_iter()
+                    .map(|row| StatsRow {
+                        name: format!("{} · {}", row.field, row.value).into(),
+                        duration: storage::format_time(row.duration_ms).into(),
+                        count: row.count as i32,
                     })
                     .collect::<Vec<_>>(),
             )));
@@ -1091,9 +1222,10 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = weak.upgrade() else { return };
             let mut state = state.borrow_mut();
             let estimate_key = state.config.time_estimate_key.clone();
+            let language = state.config.language.clone();
             let row = state.timers.get_mut(index as usize).map(|timer| {
                 timer.time_estimate_minutes = (minutes > 0).then_some(minutes as u64);
-                (PathBuf::from(&timer.note_path), timer_row(timer))
+                (PathBuf::from(&timer.note_path), timer_row(timer, &language))
             });
             if let Some((path, row)) = row {
                 if let Err(error) = write_time_estimate(&path, &estimate_key, minutes as u64) {
@@ -1116,9 +1248,10 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_toggle_timer(move |index| {
             let Some(_ui) = weak.upgrade() else { return };
             let mut state = state.borrow_mut();
+            let language = state.config.language.clone();
             let row = state.timers.get_mut(index as usize).map(|timer| {
                 timer.toggle();
-                timer_row(timer)
+                timer_row(timer, &language)
             });
             if let Some(row) = row {
                 state.timer_model.set_row_data(index as usize, row);
@@ -1205,7 +1338,9 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut last_grid_row = None;
             for (index, timer) in state.timers.iter().enumerate() {
                 if timer.is_running() {
-                    state.timer_model.set_row_data(index, timer_row(timer));
+                    state
+                        .timer_model
+                        .set_row_data(index, timer_row(timer, &state.config.language));
                     if columns > 1 {
                         let grid_row = index / columns;
                         if last_grid_row != Some(grid_row) {
@@ -1329,7 +1464,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if let Ok(tab) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_TAB")
                     && let Ok(tab) = tab.parse::<i32>()
                 {
-                    ui.set_stats_tab(tab.clamp(0, 4));
+                    ui.set_stats_tab(tab.clamp(0, 5));
                 }
                 if let Ok(offset) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_MONTH")
                     && let Ok(offset) = offset.parse::<i32>()

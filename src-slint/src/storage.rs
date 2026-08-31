@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     io::{self, Write},
     path::{Component, Path, PathBuf},
@@ -14,11 +15,26 @@ pub struct Note {
     pub preview: String,
     pub tags: Vec<String>,
     pub time_estimate_minutes: Option<u64>,
+    pub fields: HashMap<String, Vec<String>>,
 }
 
-pub fn scan_notes(root: &Path, key: &str, estimate_key: &str) -> io::Result<Vec<Note>> {
+#[derive(Clone, Debug, Default)]
+pub struct NoteScan {
+    pub notes: Vec<Note>,
+    pub warnings: Vec<String>,
+}
+
+pub fn scan_notes_detailed(
+    root: &Path,
+    key: &str,
+    estimate_key: &str,
+    field_keys: &[String],
+) -> io::Result<NoteScan> {
     validate_key(key)?;
     validate_key(estimate_key)?;
+    for field in field_keys {
+        validate_key(field)?;
+    }
     if !root.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -27,12 +43,20 @@ pub fn scan_notes(root: &Path, key: &str, estimate_key: &str) -> io::Result<Vec<
     }
 
     let mut notes = Vec::new();
+    let mut warnings = Vec::new();
     let walker = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
         .filter_entry(is_visible_note_entry);
 
-    for entry in walker.filter_map(Result::ok) {
+    for entry in walker {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                warnings.push(format!("Nelze projít položku: {error}"));
+                continue;
+            }
+        };
         if !entry.file_type().is_file()
             || !entry
                 .path()
@@ -41,22 +65,60 @@ pub fn scan_notes(root: &Path, key: &str, estimate_key: &str) -> io::Result<Vec<
         {
             continue;
         }
-        let Ok(content) = fs::read_to_string(entry.path()) else {
-            continue;
+        let content = match fs::read_to_string(entry.path()) {
+            Ok(content) => content,
+            Err(error) => {
+                warnings.push(format!(
+                    "{}: nelze přečíst ({error})",
+                    entry.path().display()
+                ));
+                continue;
+            }
         };
         let (frontmatter, body) = split_frontmatter(&content);
-        let duration_ms = frontmatter
-            .and_then(|yaml| frontmatter_value(yaml, key))
-            .and_then(parse_time_ms)
-            .unwrap_or(0);
-        let time_estimate_minutes = frontmatter
-            .and_then(|yaml| frontmatter_value(yaml, estimate_key))
+        if (content.starts_with("---\n") || content.starts_with("---\r\n")) && frontmatter.is_none()
+        {
+            warnings.push(format!(
+                "{}: frontmatter nemá ukončovací ---",
+                entry.path().display()
+            ));
+        }
+        let raw_duration = frontmatter.and_then(|yaml| frontmatter_value(yaml, key));
+        let duration_ms = raw_duration.and_then(parse_time_ms).unwrap_or(0);
+        if raw_duration.is_some() && parse_time_ms(raw_duration.unwrap_or_default()).is_none() {
+            warnings.push(format!(
+                "{}: pole {key} nemá platný čas",
+                entry.path().display()
+            ));
+        }
+        let raw_estimate = frontmatter.and_then(|yaml| frontmatter_value(yaml, estimate_key));
+        let time_estimate_minutes = raw_estimate
             .and_then(|value| value.parse::<u64>().ok())
             .filter(|minutes| *minutes > 0);
+        if raw_estimate.is_some()
+            && raw_estimate
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_none()
+        {
+            warnings.push(format!(
+                "{}: pole {estimate_key} nemá platný počet minut",
+                entry.path().display()
+            ));
+        }
         let tags = frontmatter
             .and_then(|yaml| frontmatter_value(yaml, "tags"))
             .map(parse_tags)
             .unwrap_or_default();
+        let fields = field_keys
+            .iter()
+            .filter_map(|field| {
+                let values = frontmatter
+                    .and_then(|yaml| frontmatter_value(yaml, field))
+                    .map(parse_tags)
+                    .unwrap_or_default();
+                (!values.is_empty()).then(|| (field.clone(), values))
+            })
+            .collect();
         let relative_path = entry
             .path()
             .strip_prefix(root)
@@ -77,10 +139,11 @@ pub fn scan_notes(root: &Path, key: &str, estimate_key: &str) -> io::Result<Vec<
             preview: make_preview(body),
             tags,
             time_estimate_minutes,
+            fields,
         });
     }
     notes.sort_by_key(|note| note.name.to_lowercase());
-    Ok(notes)
+    Ok(NoteScan { notes, warnings })
 }
 
 fn parse_tags(value: &str) -> Vec<String> {
@@ -403,7 +466,9 @@ mod tests {
         )
         .expect("write temporary note");
 
-        let notes = scan_notes(&vault, "Timework", "timeEstimate").expect("scan temporary vault");
+        let notes = scan_notes_detailed(&vault, "Timework", "timeEstimate", &[])
+            .expect("scan temporary vault")
+            .notes;
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].duration_ms, 62_000);
         assert_eq!(notes[0].relative_path, "Project/Task.md");
@@ -427,6 +492,25 @@ mod tests {
         assert!(content.contains("Timework: 00:01:30"));
         assert!(content.contains("tags: [alpha, beta]"));
         assert!(create_note(&vault, "../escape.md", "Timework", "", "").is_err());
+        fs::remove_dir_all(&vault).expect("remove temporary vault");
+    }
+
+    #[test]
+    fn detailed_scan_reports_invalid_fields_and_collects_breakdown_values() {
+        let vault = temporary_vault();
+        fs::create_dir_all(&vault).expect("create temporary vault");
+        fs::write(
+            vault.join("invalid.md"),
+            "---\nTimework: tomorrow\ntimeEstimate: soon\nproject: [alpha, beta]\n---\nBody\n",
+        )
+        .expect("write fixture");
+
+        let scan = scan_notes_detailed(&vault, "Timework", "timeEstimate", &["project".into()])
+            .expect("scan fixture");
+        assert_eq!(scan.notes.len(), 1);
+        assert_eq!(scan.warnings.len(), 2);
+        assert_eq!(scan.notes[0].fields["project"], ["alpha", "beta"]);
+
         fs::remove_dir_all(&vault).expect("remove temporary vault");
     }
 }
