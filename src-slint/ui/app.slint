@@ -783,6 +783,7 @@ export component AppWindow inherits Window {
     callback edit-note(int);
     callback open-obsidian(int);
     callback open-stats;
+    callback shift-stats-calendar(int);
     callback export-report(bool);
     callback open-settings;
     callback save-settings;
@@ -1113,7 +1114,12 @@ export component AppWindow inherits Window {
                 }
                 if root.stats-tab == 2 : VerticalLayout {
                     spacing: 6px;
-                    Text { height: 24px; text: root.stats-calendar-month; color: #e4e4e7; font-size: 14px; font-weight: 700; horizontal-alignment: center; }
+                    HorizontalLayout {
+                        height: 26px;
+                        SmallButton { width: 30px; height: 26px; label: "‹"; clicked => root.shift-stats-calendar(-1); }
+                        Text { text: root.stats-calendar-month; color: #e4e4e7; font-size: 14px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        SmallButton { width: 30px; height: 26px; label: "›"; clicked => root.shift-stats-calendar(1); }
+                    }
                     HorizontalLayout {
                         height: 18px;
                         for label in ["PO", "ÚT", "ST", "ČT", "PÁ", "SO", "NE"] : Text { text: label; color: #71717a; font-size: 8px; font-weight: 700; horizontal-alignment: center; }

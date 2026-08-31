@@ -21,7 +21,7 @@ use report::save_report;
 use slint::{CloseRequestResponse, Model, ModelRc, Timer, TimerMode};
 use stats::snapshot as stats_snapshot;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -58,6 +58,25 @@ fn stats_calendar_day_row(day: &stats::CalendarDay) -> StatsCalendarDayRow {
         in_month: day.in_month,
         today: day.today,
     }
+}
+
+fn set_stats_calendar(ui: &AppWindow, calendar: stats::CalendarSnapshot) {
+    ui.set_stats_calendar_month(calendar.month.into());
+    ui.set_stats_calendar(ModelRc::new(slint::VecModel::from(
+        calendar
+            .days
+            .chunks_exact(7)
+            .map(|week| StatsCalendarWeekRow {
+                monday: stats_calendar_day_row(&week[0]),
+                tuesday: stats_calendar_day_row(&week[1]),
+                wednesday: stats_calendar_day_row(&week[2]),
+                thursday: stats_calendar_day_row(&week[3]),
+                friday: stats_calendar_day_row(&week[4]),
+                saturday: stats_calendar_day_row(&week[5]),
+                sunday: stats_calendar_day_row(&week[6]),
+            })
+            .collect::<Vec<_>>(),
+    )));
 }
 
 fn sync_settings(ui: &AppWindow, config: &AppConfig) {
@@ -517,12 +536,15 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    let stats_calendar_offset = Rc::new(Cell::new(0_i32));
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        let calendar_offset = stats_calendar_offset.clone();
         ui.on_open_stats(move || {
             let Some(ui) = weak.upgrade() else { return };
             let snapshot = stats_snapshot(&state.borrow().config);
+            calendar_offset.set(0);
             ui.set_stats_total(storage::format_time(snapshot.total_ms).into());
             ui.set_stats_today(storage::format_time(snapshot.today_ms).into());
             ui.set_stats_week(storage::format_time(snapshot.week_ms).into());
@@ -534,22 +556,13 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_stats_streak(snapshot.streak_days as i32);
             ui.set_stats_consistency(snapshot.consistency_percent as i32);
             ui.set_stats_weekly_delta(snapshot.weekly_delta_percent);
-            ui.set_stats_calendar_month(snapshot.calendar_month.into());
-            ui.set_stats_calendar(ModelRc::new(slint::VecModel::from(
-                snapshot
-                    .calendar
-                    .chunks_exact(7)
-                    .map(|week| StatsCalendarWeekRow {
-                        monday: stats_calendar_day_row(&week[0]),
-                        tuesday: stats_calendar_day_row(&week[1]),
-                        wednesday: stats_calendar_day_row(&week[2]),
-                        thursday: stats_calendar_day_row(&week[3]),
-                        friday: stats_calendar_day_row(&week[4]),
-                        saturday: stats_calendar_day_row(&week[5]),
-                        sunday: stats_calendar_day_row(&week[6]),
-                    })
-                    .collect::<Vec<_>>(),
-            )));
+            set_stats_calendar(
+                &ui,
+                stats::CalendarSnapshot {
+                    month: snapshot.calendar_month,
+                    days: snapshot.calendar,
+                },
+            );
             ui.set_stats_days(ModelRc::new(slint::VecModel::from(
                 snapshot
                     .daily
@@ -574,6 +587,21 @@ fn main() -> Result<(), slint::PlatformError> {
                     .collect::<Vec<_>>(),
             )));
             ui.set_stats_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        let calendar_offset = stats_calendar_offset;
+        ui.on_shift_stats_calendar(move |delta| {
+            let Some(ui) = weak.upgrade() else { return };
+            let offset = calendar_offset.get().saturating_add(delta).clamp(-120, 120);
+            calendar_offset.set(offset);
+            set_stats_calendar(
+                &ui,
+                stats::calendar_snapshot(&state.borrow().config, offset),
+            );
         });
     }
 
@@ -1050,6 +1078,11 @@ fn main() -> Result<(), slint::PlatformError> {
                     && let Ok(tab) = tab.parse::<i32>()
                 {
                     ui.set_stats_tab(tab.clamp(0, 2));
+                }
+                if let Ok(offset) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_MONTH")
+                    && let Ok(offset) = offset.parse::<i32>()
+                {
+                    ui.invoke_shift_stats_calendar(offset.clamp(-120, 120));
                 }
             }
             "new-note" => ui.set_new_note_open(true),
