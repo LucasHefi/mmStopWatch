@@ -20,7 +20,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Goals/calendar | Daily target, streak, heat calendar | Missing | Goal and date-boundary fixtures match |
 | Reports | Weekly/monthly Markdown reports and export workflow | Partial | Golden report output matches |
 | Settings | General, frontmatter, alerts, goals and vault profiles | Partial | All settings persist in the existing config format |
-| Profiles | Detect/create/switch/delete vault profiles | Partial | Existing `.mmST-{nick}` profiles open without migration loss |
+| Profiles | Detect/create/switch/delete vault profiles | Complete (core) | Existing `.mmST-{nick}` profiles open without migration loss |
 | Onboarding | Nick, folder, frontmatter and configuration steps | Partial | Fresh install reaches a working vault without manual files |
 | Notifications | Periodic reminder, estimate limit alert, overlay and custom sound | Partial | Enabled/disabled paths and one-shot expiry are tested |
 | Languages | Existing 15 language catalogues | Missing | Runtime language switch covers every native screen |

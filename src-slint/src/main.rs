@@ -134,6 +134,52 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        ui.on_delete_profile(move |index| {
+            let Some(ui) = weak.upgrade() else { return };
+            if !state.borrow().timers.is_empty() {
+                set_status(
+                    &ui,
+                    "Před archivací profilu uložte nebo zahoďte časomíry.",
+                    true,
+                );
+                return;
+            }
+            let profile = {
+                let state = state.borrow();
+                state
+                    .config
+                    .available_profiles()
+                    .get(index as usize)
+                    .cloned()
+            };
+            let Some(profile) = profile else { return };
+            let Some(nick) = profile.nick else { return };
+            let state = state.borrow();
+            if state.config.nick.as_deref() == Some(nick.as_str()) {
+                set_status(
+                    &ui,
+                    "Aktivní profil nelze archivovat. Nejdřív přepněte jiný.",
+                    true,
+                );
+                return;
+            }
+            match state.config.archive_profile(&nick) {
+                Ok(path) => {
+                    sync_settings(&ui, &state.config);
+                    set_status(
+                        &ui,
+                        format!("Profil byl přesunut do {}", path.to_string_lossy()),
+                        false,
+                    );
+                }
+                Err(error) => set_status(&ui, format!("Profil nelze archivovat: {error}"), true),
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
         ui.on_switch_profile(move |index| {
             let Some(ui) = weak.upgrade() else { return };
             if !state.borrow().timers.is_empty() {

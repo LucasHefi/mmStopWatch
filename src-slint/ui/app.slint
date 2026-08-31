@@ -309,6 +309,7 @@ component OverlayLayer inherits Rectangle {
     callback save-note-edit;
     callback switch-profile(int);
     callback create-profile;
+    callback delete-profile(int);
     background: transparent;
 
     if root.settings-open : Rectangle {
@@ -421,6 +422,7 @@ component OverlayLayer inherits Rectangle {
                                     Text { text: profile.nick; color: profile.active ? #6ee7b7 : #d4d4d8; font-size: 11px; font-weight: 600; vertical-alignment: center; }
                                     Text { text: profile.active ? "AKTIVNÍ" : ""; color: #34d399; font-size: 8px; vertical-alignment: center; }
                                     SmallButton { width: 72px; height: 27px; label: profile.active ? "Vybráno" : "Přepnout"; active: profile.active; clicked => root.switch-profile(index); }
+                                    SmallButton { width: 28px; height: 27px; label: "×"; danger: true; clicked => root.delete-profile(index); }
                                 }
                             }
                         }
@@ -713,6 +715,7 @@ export component AppWindow inherits Window {
     callback save-note-edit;
     callback switch-profile(int);
     callback create-profile;
+    callback delete-profile(int);
 
     for row in 10 : Rectangle {
         background: transparent;
@@ -1015,5 +1018,6 @@ export component AppWindow inherits Window {
         save-note-edit => root.save-note-edit();
         switch-profile(index) => root.switch-profile(index);
         create-profile => root.create-profile();
+        delete-profile(index) => root.delete-profile(index);
     }
 }

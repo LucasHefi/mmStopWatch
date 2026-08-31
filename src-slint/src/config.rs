@@ -170,6 +170,32 @@ impl AppConfig {
         self.vault_path = Some(vault);
         self.save()
     }
+
+    pub fn archive_profile(&self, nick: &str) -> io::Result<PathBuf> {
+        if !valid_profile_key(nick) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "neplatný název profilu",
+            ));
+        }
+        let vault = self
+            .vault_path
+            .as_ref()
+            .ok_or_else(|| io::Error::other("není vybraný vault"))?;
+        let source = vault.join(format!(".mmST-{nick}"));
+        if !source.is_dir() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "profil neexistuje"));
+        }
+        let archive_root = vault.join(".mmST-trash");
+        fs::create_dir_all(&archive_root)?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let destination = archive_root.join(format!("{nick}-{timestamp}"));
+        fs::rename(source, &destination)?;
+        Ok(destination)
+    }
 }
 
 fn load_vault_profile(vault: &Path) -> Option<AppConfig> {
@@ -313,6 +339,11 @@ mod tests {
                 .iter()
                 .any(|profile| profile.nick.as_deref() == Some("second"))
         );
+        let archived = imported
+            .archive_profile("second")
+            .expect("archive second profile");
+        assert!(archived.is_dir());
+        assert_eq!(imported.available_profiles().len(), 1);
         fs::remove_dir_all(vault).expect("remove fixture");
     }
 }
