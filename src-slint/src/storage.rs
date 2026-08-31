@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 use walkdir::{DirEntry, WalkDir};
 
@@ -12,10 +12,13 @@ pub struct Note {
     pub relative_path: String,
     pub duration_ms: u64,
     pub preview: String,
+    pub tags: Vec<String>,
+    pub time_estimate_minutes: Option<u64>,
 }
 
-pub fn scan_notes(root: &Path, key: &str) -> io::Result<Vec<Note>> {
+pub fn scan_notes(root: &Path, key: &str, estimate_key: &str) -> io::Result<Vec<Note>> {
     validate_key(key)?;
+    validate_key(estimate_key)?;
     if !root.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -46,6 +49,14 @@ pub fn scan_notes(root: &Path, key: &str) -> io::Result<Vec<Note>> {
             .and_then(|yaml| frontmatter_value(yaml, key))
             .and_then(parse_time_ms)
             .unwrap_or(0);
+        let time_estimate_minutes = frontmatter
+            .and_then(|yaml| frontmatter_value(yaml, estimate_key))
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|minutes| *minutes > 0);
+        let tags = frontmatter
+            .and_then(|yaml| frontmatter_value(yaml, "tags"))
+            .map(parse_tags)
+            .unwrap_or_default();
         let relative_path = entry
             .path()
             .strip_prefix(root)
@@ -64,16 +75,101 @@ pub fn scan_notes(root: &Path, key: &str) -> io::Result<Vec<Note>> {
             relative_path,
             duration_ms,
             preview: make_preview(body),
+            tags,
+            time_estimate_minutes,
         });
     }
     notes.sort_by_key(|note| note.name.to_lowercase());
     Ok(notes)
 }
 
+fn parse_tags(value: &str) -> Vec<String> {
+    value
+        .trim_matches(['[', ']'])
+        .split(',')
+        .map(|tag| tag.trim().trim_matches(['\'', '"']).trim_start_matches('#'))
+        .filter(|tag| !tag.is_empty())
+        .take(8)
+        .map(str::to_owned)
+        .collect()
+}
+
 pub fn write_total_duration(path: &Path, key: &str, total_ms: u64) -> io::Result<()> {
+    write_frontmatter_value(path, key, &format_time(total_ms))
+}
+
+pub fn write_time_estimate(path: &Path, key: &str, minutes: u64) -> io::Result<()> {
+    write_frontmatter_value(path, key, &minutes.to_string())
+}
+
+pub fn create_note(
+    root: &Path,
+    relative_path: &str,
+    time_key: &str,
+    initial_time: &str,
+    tags: &str,
+) -> io::Result<PathBuf> {
+    validate_key(time_key)?;
+    let relative = Path::new(relative_path.trim());
+    let safe = !relative.as_os_str().is_empty()
+        && !relative.is_absolute()
+        && relative
+            .extension()
+            .is_some_and(|extension| extension == "md")
+        && relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)));
+    if !safe {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "název musí být bezpečná relativní cesta končící .md",
+        ));
+    }
+    let target = root.join(relative);
+    if target.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "poznámka s tímto názvem už existuje",
+        ));
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| io::Error::other("poznámka nemá nadřazenou složku"))?;
+    if !parent.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "cílová podsložka neexistuje",
+        ));
+    }
+    let initial_ms = if initial_time.trim().is_empty() {
+        0
+    } else {
+        parse_time_ms(initial_time).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "počáteční čas není platný")
+        })?
+    };
+    let mut content = update_frontmatter("---\n---\n", time_key, &format_time(initial_ms));
+    let cleaned_tags = tags
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .collect::<Vec<_>>();
+    if !cleaned_tags.is_empty() {
+        content = update_frontmatter(&content, "tags", &format!("[{}]", cleaned_tags.join(", ")));
+    }
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)?;
+    file.write_all(content.as_bytes())?;
+    file.sync_all()?;
+    Ok(target)
+}
+
+fn write_frontmatter_value(path: &Path, key: &str, value: &str) -> io::Result<()> {
     validate_key(key)?;
     let content = fs::read_to_string(path)?;
-    let updated = update_frontmatter(&content, key, &format_time(total_ms));
+    let updated = update_frontmatter(&content, key, value);
     let metadata = fs::metadata(path)?;
     let parent = path
         .parent()
@@ -307,7 +403,7 @@ mod tests {
         )
         .expect("write temporary note");
 
-        let notes = scan_notes(&vault, "Timework").expect("scan temporary vault");
+        let notes = scan_notes(&vault, "Timework", "timeEstimate").expect("scan temporary vault");
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].duration_ms, 62_000);
         assert_eq!(notes[0].relative_path, "Project/Task.md");
@@ -318,6 +414,19 @@ mod tests {
         assert!(updated.contains("tags: [test]"));
         assert!(updated.ends_with("# Important body\n"));
 
+        fs::remove_dir_all(&vault).expect("remove temporary vault");
+    }
+
+    #[test]
+    fn creates_compatible_note_and_rejects_parent_traversal() {
+        let vault = temporary_vault();
+        fs::create_dir_all(&vault).expect("create temporary vault");
+        let created = create_note(&vault, "new.md", "Timework", "00:01:30", "alpha, beta")
+            .expect("create note");
+        let content = fs::read_to_string(created).expect("read created note");
+        assert!(content.contains("Timework: 00:01:30"));
+        assert!(content.contains("tags: [alpha, beta]"));
+        assert!(create_note(&vault, "../escape.md", "Timework", "", "").is_err());
         fs::remove_dir_all(&vault).expect("remove temporary vault");
     }
 }

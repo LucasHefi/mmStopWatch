@@ -2603,6 +2603,7 @@ dependencies = [
 name = "mmstopwatch-slint"
 version = "1.7.0"
 dependencies = [
+ "chrono",
  "rfd",
  "serde",
  "serde_json",

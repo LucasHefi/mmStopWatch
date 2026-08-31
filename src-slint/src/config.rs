@@ -5,18 +5,68 @@ use std::{
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TimerLayout {
+    pub mode: String,
+    pub order: Vec<String>,
+}
+
+impl Default for TimerLayout {
+    fn default() -> Self {
+        Self {
+            mode: "list".into(),
+            order: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Notifications {
+    pub enabled: bool,
+    pub interval_minutes: u32,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_minutes: 60,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TimerCheckpoint {
     pub note_path: String,
     pub name: String,
     pub elapsed_ms: u64,
     pub color_argb: u32,
+    #[serde(default)]
+    pub base_elapsed_ms: u64,
+    #[serde(default)]
+    pub time_estimate_minutes: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct AppConfig {
+    #[serde(rename = "notesFolder", alias = "vault_path")]
     pub vault_path: Option<PathBuf>,
     pub frontmatter_key: String,
+    pub time_estimate_key: String,
+    pub time_format: String,
+    pub language: String,
+    pub nick: Option<String>,
+    pub onboarding_complete: bool,
+    pub pinned_notes: Vec<String>,
+    pub daily_goal_ms: u64,
+    pub auto_refresh_interval: u32,
+    pub obsidian_vault: String,
+    pub stats_field_keys: Vec<String>,
+    pub timer_view_mode: String,
+    pub timer_layout: TimerLayout,
+    pub notifications: Notifications,
 }
 
 impl Default for AppConfig {
@@ -24,6 +74,19 @@ impl Default for AppConfig {
         Self {
             vault_path: None,
             frontmatter_key: "Timework".into(),
+            time_estimate_key: "timeEstimate".into(),
+            time_format: "HH:mm:ss".into(),
+            language: "cs".into(),
+            nick: None,
+            onboarding_complete: false,
+            pinned_notes: Vec::new(),
+            daily_goal_ms: 28_800_000,
+            auto_refresh_interval: 10,
+            obsidian_vault: String::new(),
+            stats_field_keys: vec!["project".into(), "client".into(), "type".into()],
+            timer_view_mode: "cards".into(),
+            timer_layout: TimerLayout::default(),
+            notifications: Notifications::default(),
         }
     }
 }
@@ -44,6 +107,87 @@ impl AppConfig {
             config_path().ok_or_else(|| io::Error::other("není dostupná složka konfigurace"))?;
         write_json(&path, self)
     }
+
+    pub fn adopt_vault(&mut self, vault: PathBuf) -> io::Result<()> {
+        if let Some(mut imported) = load_vault_profile(&vault) {
+            imported.vault_path = Some(vault);
+            *self = imported;
+        } else {
+            self.vault_path = Some(vault);
+        }
+        self.save()
+    }
+
+    pub fn storage_dir(&self) -> Option<PathBuf> {
+        let root = self.vault_path.as_ref()?;
+        if let Some(nick) = self.nick.as_deref().filter(|nick| valid_profile_key(nick)) {
+            return Some(root.join(format!(".mmST-{nick}")));
+        }
+        discover_profile_dirs(root).into_iter().next()
+    }
+
+    pub fn save_profile(&self) -> io::Result<()> {
+        let Some(directory) = self.storage_dir() else {
+            return Ok(());
+        };
+        fs::create_dir_all(&directory)?;
+        let path = directory.join("config.json");
+        let mut document = fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .filter(serde_json::Value::is_object)
+            .unwrap_or_else(|| serde_json::json!({}));
+        let known = serde_json::to_value(self).map_err(io::Error::other)?;
+        if let (Some(target), Some(source)) = (document.as_object_mut(), known.as_object()) {
+            for (key, value) in source {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+        write_json(&path, &document)
+    }
+}
+
+fn load_vault_profile(vault: &Path) -> Option<AppConfig> {
+    for directory in discover_profile_dirs(vault) {
+        let path = directory.join("config.json");
+        let Ok(raw) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(mut config) = serde_json::from_str::<AppConfig>(&raw) else {
+            continue;
+        };
+        if config.nick.is_none() {
+            config.nick = directory
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_prefix(".mmST-"))
+                .map(str::to_owned);
+        }
+        return Some(config);
+    }
+    None
+}
+
+fn discover_profile_dirs(vault: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(vault) else {
+        return Vec::new();
+    };
+    let mut directories = entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(".mmST-"))
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    directories.sort();
+    directories
+}
+
+fn valid_profile_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
 }
 
 pub fn load_timer_checkpoints() -> Vec<TimerCheckpoint> {
@@ -95,4 +239,43 @@ fn config_path() -> Option<PathBuf> {
 
 fn recovery_path() -> Option<PathBuf> {
     config_path().map(|path| path.with_file_name("timers.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn imports_existing_react_vault_configuration() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let vault = std::env::temp_dir().join(format!("mmst-config-{nonce}"));
+        let profile = vault.join(".mmST-lhefn");
+        fs::create_dir_all(&profile).expect("profile directory");
+        fs::write(
+            profile.join("config.json"),
+            r#"{"notesFolder":"D:\\old-path","nick":"lhefn","frontmatterKey":"Work","timeEstimateKey":"estimate","dailyGoalMs":7200000,"unknownFutureField":true}"#,
+        )
+        .expect("config fixture");
+
+        let imported = load_vault_profile(&vault).expect("import profile");
+        assert_eq!(imported.nick.as_deref(), Some("lhefn"));
+        assert_eq!(imported.frontmatter_key, "Work");
+        assert_eq!(imported.time_estimate_key, "estimate");
+        assert_eq!(imported.daily_goal_ms, 7_200_000);
+        let mut imported = imported;
+        imported.vault_path = Some(vault.clone());
+        imported.language = "de".into();
+        imported.save_profile().expect("merge profile config");
+        let merged: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(profile.join("config.json")).expect("read merged config"),
+        )
+        .expect("parse merged config");
+        assert_eq!(merged["language"], "de");
+        assert_eq!(merged["unknownFutureField"], true);
+        fs::remove_dir_all(vault).expect("remove fixture");
+    }
 }

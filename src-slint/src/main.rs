@@ -1,9 +1,16 @@
+mod activity;
+mod app_state;
 mod config;
+mod stats;
 mod storage;
 mod timer;
 
-use config::{AppConfig, TimerCheckpoint, load_timer_checkpoints, save_timer_checkpoints};
-use slint::{Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use activity::append_activity;
+use app_state::{AppState, COLORS, note_rows, refresh_models, set_status, timer_row};
+use chrono::Local;
+use config::AppConfig;
+use slint::{CloseRequestResponse, Model, ModelRc, Timer, TimerMode};
+use stats::snapshot as stats_snapshot;
 use std::{
     cell::RefCell,
     fs,
@@ -12,156 +19,10 @@ use std::{
     rc::Rc,
     time::Duration,
 };
-use storage::{Note, format_stopwatch, format_time, scan_notes, write_total_duration};
+use storage::{create_note, write_time_estimate, write_total_duration};
 use timer::NativeTimer;
 
 slint::include_modules!();
-
-const COLORS: [u32; 8] = [
-    0x34d399, 0x38bdf8, 0xa78bfa, 0xfbbf24, 0xfb7185, 0x2dd4bf, 0x818cf8, 0xa3e635,
-];
-
-struct State {
-    config: AppConfig,
-    notes: Vec<Note>,
-    visible_notes: Vec<usize>,
-    timers: Vec<NativeTimer>,
-    timer_model: Rc<VecModel<TimerRow>>,
-    search: String,
-    diagnostics: bool,
-}
-
-impl State {
-    fn new(config: AppConfig, diagnostics: bool) -> Self {
-        Self {
-            config,
-            notes: Vec::new(),
-            visible_notes: Vec::new(),
-            timers: Vec::new(),
-            timer_model: Rc::new(VecModel::default()),
-            search: String::new(),
-            diagnostics,
-        }
-    }
-
-    fn reload(&mut self) -> Result<usize, String> {
-        let root = self
-            .config
-            .vault_path
-            .as_deref()
-            .ok_or_else(|| "Nejdřív vyberte složku s poznámkami.".to_owned())?;
-        self.notes =
-            scan_notes(root, &self.config.frontmatter_key).map_err(|error| error.to_string())?;
-        self.apply_filter();
-        Ok(self.notes.len())
-    }
-
-    fn apply_filter(&mut self) {
-        let query = self.search.trim().to_lowercase();
-        self.visible_notes = self
-            .notes
-            .iter()
-            .enumerate()
-            .filter(|(_, note)| {
-                query.is_empty()
-                    || note.name.to_lowercase().contains(&query)
-                    || note.relative_path.to_lowercase().contains(&query)
-                    || note.preview.to_lowercase().contains(&query)
-            })
-            .map(|(index, _)| index)
-            .collect();
-    }
-
-    fn restore_timers(&mut self) {
-        if self.diagnostics {
-            return;
-        }
-        for checkpoint in load_timer_checkpoints() {
-            let path = PathBuf::from(&checkpoint.note_path);
-            if self
-                .timers
-                .iter()
-                .any(|timer| timer.note_path == checkpoint.note_path)
-                || !self.notes.iter().any(|note| note.path == path)
-            {
-                continue;
-            }
-            self.timers.push(NativeTimer::new(
-                checkpoint.note_path,
-                checkpoint.name,
-                checkpoint.elapsed_ms,
-                slint::Color::from_argb_encoded(checkpoint.color_argb),
-            ));
-        }
-    }
-
-    fn checkpoint_timers(&self) {
-        if self.diagnostics {
-            return;
-        }
-        let checkpoints = self
-            .timers
-            .iter()
-            .map(|timer| TimerCheckpoint {
-                note_path: timer.note_path.clone(),
-                name: timer.name.clone(),
-                elapsed_ms: timer.current_elapsed_ms(),
-                color_argb: timer.color.as_argb_encoded(),
-            })
-            .collect::<Vec<_>>();
-        if let Err(error) = save_timer_checkpoints(&checkpoints) {
-            eprintln!("timer checkpoint failed: {error}");
-        }
-    }
-}
-
-fn note_rows(state: &State) -> ModelRc<NoteRow> {
-    let rows = state
-        .visible_notes
-        .iter()
-        .map(|index| {
-            let note = &state.notes[*index];
-            NoteRow {
-                name: note.name.clone().into(),
-                path: note.path.to_string_lossy().into_owned().into(),
-                relative_path: note.relative_path.clone().into(),
-                duration: format_time(note.duration_ms).into(),
-                preview: note.preview.clone().into(),
-                active: state
-                    .timers
-                    .iter()
-                    .any(|timer| timer.note_path == note.path.to_string_lossy()),
-            }
-        })
-        .collect::<Vec<_>>();
-    ModelRc::new(VecModel::from(rows))
-}
-
-fn timer_row(timer: &NativeTimer) -> TimerRow {
-    TimerRow {
-        name: timer.name.clone().into(),
-        elapsed: format_stopwatch(timer.current_elapsed_ms()).into(),
-        running: timer.is_running(),
-        color: timer.color,
-    }
-}
-
-fn sync_timer_model(state: &State) {
-    state
-        .timer_model
-        .set_vec(state.timers.iter().map(timer_row).collect::<Vec<_>>());
-}
-
-fn refresh_models(ui: &AppWindow, state: &State) {
-    ui.set_notes(note_rows(state));
-    sync_timer_model(state);
-    ui.set_timer_count(state.timers.len() as i32);
-}
-
-fn set_status(ui: &AppWindow, message: impl Into<SharedString>, error: bool) {
-    ui.set_status_message(message.into());
-    ui.set_status_error(error);
-}
 
 fn write_snapshot(ui: &AppWindow, path: &Path) -> io::Result<()> {
     let pixels = ui.window().take_snapshot().map_err(io::Error::other)?;
@@ -175,10 +36,55 @@ fn write_snapshot(ui: &AppWindow, path: &Path) -> io::Result<()> {
     output.write_all(pixels.as_bytes())
 }
 
+fn sync_settings(ui: &AppWindow, config: &AppConfig) {
+    ui.set_settings_nick(config.nick.clone().unwrap_or_default().into());
+    ui.set_settings_frontmatter(config.frontmatter_key.clone().into());
+    ui.set_settings_estimate_key(config.time_estimate_key.clone().into());
+    ui.set_settings_time_format(config.time_format.clone().into());
+    ui.set_settings_language(config.language.clone().into());
+    ui.set_settings_daily_goal(format!("{:.1}", config.daily_goal_ms as f64 / 3_600_000.0).into());
+    ui.set_settings_auto_refresh(config.auto_refresh_interval.to_string().into());
+    ui.set_settings_notifications(config.notifications.enabled);
+}
+
+fn valid_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+}
+
+fn save_all_timers(state: &mut AppState) -> Result<(), String> {
+    let mut saved = Vec::with_capacity(state.timers.len());
+    for timer in &mut state.timers {
+        timer.pause();
+        let path = PathBuf::from(&timer.note_path);
+        let elapsed = timer.current_elapsed_ms();
+        let added = timer.added_elapsed_ms();
+        let operation_id = format!("native:{}:{elapsed}", path.to_string_lossy());
+        write_total_duration(&path, &state.config.frontmatter_key, elapsed)
+            .map_err(|error| format!("{}: {error}", timer.name))?;
+        append_activity(&state.config, added, &path, &timer.name, &operation_id)
+            .map_err(|error| format!("{}: {error}", timer.name))?;
+        saved.push((path, elapsed));
+    }
+    for (path, elapsed) in saved {
+        if let Some(note) = state.notes.iter_mut().find(|note| note.path == path) {
+            note.duration_ms = elapsed;
+        }
+    }
+    state.timers.clear();
+    state.checkpoint_timers();
+    Ok(())
+}
+
 fn main() -> Result<(), slint::PlatformError> {
     let mut config = AppConfig::load();
     if let Some(argument) = std::env::args_os().nth(1) {
-        config.vault_path = Some(PathBuf::from(argument));
+        let _ = config.adopt_vault(PathBuf::from(argument));
+    } else if let Some(vault) = config.vault_path.clone() {
+        let _ = config.adopt_vault(vault);
     }
 
     let ui = AppWindow::new()?;
@@ -190,9 +96,29 @@ fn main() -> Result<(), slint::PlatformError> {
             .unwrap_or_default()
             .into(),
     );
+    sync_settings(&ui, &config);
+    ui.set_onboarding_visible(config.vault_path.is_none());
+    ui.set_new_note_filename(Local::now().format("%Y-%m-%d.md").to_string().into());
     let diagnostics = std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some();
-    let state = Rc::new(RefCell::new(State::new(config, diagnostics)));
+    let state = Rc::new(RefCell::new(AppState::new(config, diagnostics)));
     ui.set_timers(ModelRc::from(state.borrow().timer_model.clone()));
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.window().on_close_requested(move || {
+            let Some(ui) = weak.upgrade() else {
+                return CloseRequestResponse::HideWindow;
+            };
+            if state.borrow().timers.is_empty() {
+                CloseRequestResponse::HideWindow
+            } else {
+                state.borrow().checkpoint_timers();
+                ui.set_close_guard_open(true);
+                CloseRequestResponse::KeepWindowShown
+            }
+        });
+    }
 
     if state.borrow().config.vault_path.is_some() {
         match state.borrow_mut().reload() {
@@ -209,6 +135,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 note.path.to_string_lossy().into_owned(),
                 note.name.clone(),
                 note.duration_ms,
+                note.time_estimate_minutes.or(Some(45)),
                 slint::Color::from_rgb_u8(52, 211, 153),
             );
             timer.toggle();
@@ -216,6 +143,171 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     refresh_models(&ui, &state.borrow());
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_close_save_all(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            match save_all_timers(&mut state.borrow_mut()) {
+                Ok(()) => {
+                    ui.set_close_guard_open(false);
+                    let _ = slint::quit_event_loop();
+                }
+                Err(error) => {
+                    set_status(&ui, format!("Uložení před zavřením selhalo: {error}"), true)
+                }
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_close_discard_all(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            state.timers.clear();
+            state.checkpoint_timers();
+            ui.set_close_guard_open(false);
+            let _ = slint::quit_event_loop();
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_create_note(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            let Some(root) = state.config.vault_path.as_deref() else {
+                set_status(&ui, "Nejdřív vyberte složku poznámek.", true);
+                return;
+            };
+            match create_note(
+                root,
+                ui.get_new_note_filename().as_str(),
+                &state.config.frontmatter_key,
+                ui.get_new_note_time().as_str(),
+                ui.get_new_note_tags().as_str(),
+            ) {
+                Ok(_) => match state.reload() {
+                    Ok(_) => {
+                        refresh_models(&ui, &state);
+                        ui.set_new_note_open(false);
+                        ui.set_new_note_time("".into());
+                        ui.set_new_note_tags("".into());
+                        set_status(&ui, "Nová poznámka byla vytvořena.", false);
+                    }
+                    Err(error) => set_status(&ui, error, true),
+                },
+                Err(error) => set_status(&ui, format!("Poznámku nelze vytvořit: {error}"), true),
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_open_settings(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            sync_settings(&ui, &state.borrow().config);
+            ui.set_settings_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_save_settings(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let frontmatter = ui.get_settings_frontmatter().trim().to_owned();
+            let estimate_key = ui.get_settings_estimate_key().trim().to_owned();
+            let nick = ui.get_settings_nick().trim().to_owned();
+            if !valid_key(&frontmatter)
+                || !valid_key(&estimate_key)
+                || (!nick.is_empty() && !valid_key(&nick))
+            {
+                set_status(
+                    &ui,
+                    "Název profilu nebo frontmatter pole není platný.",
+                    true,
+                );
+                return;
+            }
+            let goal_hours = ui
+                .get_settings_daily_goal()
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .unwrap_or(8.0);
+            let refresh = ui
+                .get_settings_auto_refresh()
+                .trim()
+                .parse::<u32>()
+                .unwrap_or(10)
+                .min(120);
+            let mut state = state.borrow_mut();
+            state.config.nick = (!nick.is_empty()).then_some(nick);
+            state.config.frontmatter_key = frontmatter;
+            state.config.time_estimate_key = estimate_key;
+            state.config.time_format = ui.get_settings_time_format().trim().to_owned();
+            state.config.language = ui.get_settings_language().trim().to_owned();
+            state.config.daily_goal_ms = (goal_hours * 3_600_000.0) as u64;
+            state.config.auto_refresh_interval = refresh;
+            state.config.notifications.enabled = ui.get_settings_notifications();
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(
+                    &ui,
+                    format!("Nastavení se nepodařilo uložit: {error}"),
+                    true,
+                );
+                return;
+            }
+            match state.reload() {
+                Ok(_) => {
+                    refresh_models(&ui, &state);
+                    set_status(&ui, "Nastavení bylo uloženo.", false);
+                    ui.set_settings_open(false);
+                }
+                Err(error) => set_status(&ui, error, true),
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_open_stats(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let snapshot = stats_snapshot(&state.borrow().config);
+            ui.set_stats_total(storage::format_time(snapshot.total_ms).into());
+            ui.set_stats_today(storage::format_time(snapshot.today_ms).into());
+            ui.set_stats_week(storage::format_time(snapshot.week_ms).into());
+            ui.set_stats_month(storage::format_time(snapshot.month_ms).into());
+            ui.set_stats_average(storage::format_time(snapshot.average_ms).into());
+            ui.set_stats_longest(storage::format_time(snapshot.longest_ms).into());
+            ui.set_stats_count(snapshot.count as i32);
+            ui.set_goal_progress(snapshot.goal_progress);
+            ui.set_stats_notes(ModelRc::new(slint::VecModel::from(
+                snapshot
+                    .top_notes
+                    .into_iter()
+                    .map(|note| StatsRow {
+                        name: note.name.into(),
+                        duration: storage::format_time(note.duration_ms).into(),
+                        count: note.count as i32,
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_stats_open(true);
+        });
+    }
 
     {
         let weak = ui.as_weak();
@@ -238,9 +330,8 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             {
                 let mut state = state.borrow_mut();
-                state.config.vault_path = Some(folder.clone());
                 ui.set_vault_path(folder.to_string_lossy().into_owned().into());
-                if let Err(error) = state.config.save() {
+                if let Err(error) = state.config.adopt_vault(folder) {
                     set_status(
                         &ui,
                         format!("Konfiguraci se nepodařilo uložit: {error}"),
@@ -251,6 +342,8 @@ fn main() -> Result<(), slint::PlatformError> {
                     Ok(count) => set_status(&ui, format!("Načteno {count} poznámek"), false),
                     Err(error) => set_status(&ui, error, true),
                 }
+                sync_settings(&ui, &state.config);
+                ui.set_onboarding_visible(false);
             }
             refresh_models(&ui, &state.borrow());
         });
@@ -284,6 +377,38 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        ui.on_toggle_pin(move |visible_index| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            let Some(note_index) = state.visible_notes.get(visible_index as usize).copied() else {
+                return;
+            };
+            let path = state.notes[note_index].path.to_string_lossy().into_owned();
+            if let Some(index) = state
+                .config
+                .pinned_notes
+                .iter()
+                .position(|item| item == &path)
+            {
+                state.config.pinned_notes.remove(index);
+            } else {
+                state.config.pinned_notes.push(path);
+            }
+            state.apply_filter();
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Připnutí se nepodařilo uložit: {error}"), true);
+            }
+            ui.set_notes(note_rows(&state));
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
         ui.on_add_timer(move |visible_index| {
             let Some(ui) = weak.upgrade() else { return };
             let mut state = state.borrow_mut();
@@ -293,6 +418,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let note_path = state.notes[note_index].path.to_string_lossy().into_owned();
             let note_name = state.notes[note_index].name.clone();
             let note_duration = state.notes[note_index].duration_ms;
+            let note_estimate = state.notes[note_index].time_estimate_minutes;
             if state
                 .timers
                 .iter()
@@ -303,12 +429,41 @@ fn main() -> Result<(), slint::PlatformError> {
             }
             let rgb = COLORS[state.timers.len() % COLORS.len()];
             let color = slint::Color::from_rgb_u8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
-            state
-                .timers
-                .push(NativeTimer::new(note_path, note_name, note_duration, color));
+            state.timers.push(NativeTimer::new(
+                note_path,
+                note_name,
+                note_duration,
+                note_estimate,
+                color,
+            ));
             state.checkpoint_timers();
             set_status(&ui, "Časomíra je připravená.", false);
             refresh_models(&ui, &state);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_set_timer_estimate(move |index, minutes| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            let estimate_key = state.config.time_estimate_key.clone();
+            let row = state.timers.get_mut(index as usize).map(|timer| {
+                timer.time_estimate_minutes = (minutes > 0).then_some(minutes as u64);
+                (PathBuf::from(&timer.note_path), timer_row(timer))
+            });
+            if let Some((path, row)) = row {
+                if let Err(error) = write_time_estimate(&path, &estimate_key, minutes as u64) {
+                    set_status(&ui, format!("Odhad se nepodařilo uložit: {error}"), true);
+                    return;
+                }
+                if let Some(note) = state.notes.iter_mut().find(|note| note.path == path) {
+                    note.time_estimate_minutes = (minutes > 0).then_some(minutes as u64);
+                }
+                state.timer_model.set_row_data(index as usize, row);
+                state.checkpoint_timers();
+            }
         });
     }
 
@@ -361,9 +516,22 @@ fn main() -> Result<(), slint::PlatformError> {
                     timer.name.clone(),
                 )
             };
+            let added = state
+                .timers
+                .get(index as usize)
+                .map(NativeTimer::added_elapsed_ms)
+                .unwrap_or(0);
+            let operation_id = format!("native:{}:{}", path.to_string_lossy(), elapsed);
             let key = state.config.frontmatter_key.clone();
             match write_total_duration(&path, &key, elapsed) {
                 Ok(()) => {
+                    if let Err(error) =
+                        append_activity(&state.config, added, &path, &name, &operation_id)
+                    {
+                        state.checkpoint_timers();
+                        set_status(&ui, format!("Zápis aktivity selhal: {error}"), true);
+                        return;
+                    }
                     state.timers.remove(index as usize);
                     if let Some(note) = state.notes.iter_mut().find(|note| note.path == path) {
                         note.duration_ms = elapsed;
@@ -426,6 +594,17 @@ fn main() -> Result<(), slint::PlatformError> {
                 state.checkpoint_timers();
             }
         });
+    }
+
+    if let Ok(panel) = std::env::var("MMSTOPWATCH_PREVIEW_PANEL") {
+        match panel.as_str() {
+            "settings" => ui.invoke_open_settings(),
+            "stats" => ui.invoke_open_stats(),
+            "new-note" => ui.set_new_note_open(true),
+            "close-guard" => ui.set_close_guard_open(true),
+            "onboarding" => ui.set_onboarding_visible(true),
+            _ => {}
+        }
     }
 
     if let Some(snapshot_path) = std::env::var_os("MMSTOPWATCH_SNAPSHOT") {
