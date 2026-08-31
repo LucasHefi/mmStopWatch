@@ -11,8 +11,11 @@ pub struct ActivityEntry {
     pub note_path: String,
     #[serde(rename = "noteName")]
     pub note_name: String,
+    #[serde(default)]
     pub saved_at: i64,
+    #[serde(default)]
     pub end_timestamp: i64,
+    #[serde(default)]
     pub operation_id: String,
 }
 
@@ -160,6 +163,18 @@ fn write_json_atomically(path: &Path, value: &impl Serialize) -> io::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loads_legacy_entries_without_recovery_metadata() {
+        let history: ActivityHistory = serde_json::from_str(
+            r#"{"entries":[{"timestamp":1000,"duration_ms":500,"notePath":"note.md","noteName":"Note"}]}"#,
+        )
+        .expect("legacy activity should remain readable");
+        assert_eq!(history.entries.len(), 1);
+        assert_eq!(history.entries[0].saved_at, 0);
+        assert_eq!(history.entries[0].end_timestamp, 0);
+        assert!(history.entries[0].operation_id.is_empty());
+    }
 
     #[test]
     fn midnight_split_preserves_exact_duration() {

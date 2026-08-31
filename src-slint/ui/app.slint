@@ -40,6 +40,13 @@ export struct StatsRow {
     count: int,
 }
 
+export struct StatsDayRow {
+    date: string,
+    duration: string,
+    progress: float,
+    goal-met: bool,
+}
+
 export struct ProfileRow {
     nick: string,
     active: bool,
@@ -700,7 +707,12 @@ export component AppWindow inherits Window {
     in property <string> stats-longest: "00:00:00";
     in property <int> stats-count: 0;
     in property <float> goal-progress: 0;
+    in property <int> stats-streak: 0;
+    in property <int> stats-consistency: 0;
+    in property <int> stats-weekly-delta: 0;
     in property <[StatsRow]> stats-notes;
+    in property <[StatsDayRow]> stats-days;
+    in-out property <int> stats-tab: 0;
     in property <[ProfileRow]> profiles;
     in property <float> glow-a-x: 38;
     in property <float> glow-a-y: 18;
@@ -988,7 +1000,24 @@ export component AppWindow inherits Window {
                 }
 
                 HorizontalLayout {
-                    height: 38px;
+                    height: 48px;
+                    spacing: 8px;
+                    Rectangle {
+                        border-radius: 9px; background: #202024;
+                        VerticalLayout { padding: 8px; spacing: 2px; Text { text: "SÉRIE"; color: #71717a; font-size: 8px; } Text { text: root.stats-streak + " dní"; color: #fbbf24; font-size: 13px; font-weight: 700; } }
+                    }
+                    Rectangle {
+                        border-radius: 9px; background: #202024;
+                        VerticalLayout { padding: 8px; spacing: 2px; Text { text: "KONZISTENCE (7 DNÍ)"; color: #71717a; font-size: 8px; } Text { text: root.stats-consistency + "%"; color: #34d399; font-size: 13px; font-weight: 700; } }
+                    }
+                    Rectangle {
+                        border-radius: 9px; background: #202024;
+                        VerticalLayout { padding: 8px; spacing: 2px; Text { text: "TREND 7 / 7 DNÍ"; color: #71717a; font-size: 8px; } Text { text: (root.stats-weekly-delta > 0 ? "+" : "") + root.stats-weekly-delta + "%"; color: root.stats-weekly-delta >= 0 ? #38bdf8 : #fb7185; font-size: 13px; font-weight: 700; } }
+                    }
+                }
+
+                HorizontalLayout {
+                    height: 30px;
                     spacing: 14px;
                     Text { text: root.stats-count + " záznamů"; color: #a1a1aa; font-size: 11px; vertical-alignment: center; }
                     Text { text: "Celkem " + root.stats-total; color: #a1a1aa; font-size: 11px; vertical-alignment: center; }
@@ -996,8 +1025,15 @@ export component AppWindow inherits Window {
                     Text { text: "Nejdelší " + root.stats-longest; color: #71717a; font-size: 10px; vertical-alignment: center; }
                 }
 
-                Text { height: 20px; text: "NEJČASTĚJŠÍ POZNÁMKY"; color: #71717a; font-size: 9px; font-weight: 700; }
-                ListView {
+                HorizontalLayout {
+                    height: 28px;
+                    spacing: 5px;
+                    SmallButton { width: 120px; height: 28px; label: "Poznámky"; active: root.stats-tab == 0; clicked => { root.stats-tab = 0; } }
+                    SmallButton { width: 120px; height: 28px; label: "Posledních 31 dní"; active: root.stats-tab == 1; clicked => { root.stats-tab = 1; } }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+
+                if root.stats-tab == 0 : ListView {
                     for item in root.stats-notes : Rectangle {
                         height: 38px;
                         border-radius: 7px;
@@ -1008,6 +1044,28 @@ export component AppWindow inherits Window {
                             Text { text: item.name; color: #d4d4d8; font-size: 11px; overflow: elide; vertical-alignment: center; }
                             Text { text: item.count + "×"; color: #52525b; font-size: 10px; vertical-alignment: center; }
                             Text { text: item.duration; color: #34d399; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                        }
+                    }
+                }
+                if root.stats-tab == 1 : ListView {
+                    for day in root.stats-days : Rectangle {
+                        height: 38px;
+                        border-radius: 7px;
+                        background: #202024;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 9px;
+                            Text { width: 58px; text: day.date; color: #a1a1aa; font-size: 10px; vertical-alignment: center; }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 5px;
+                                border-radius: 3px;
+                                background: #3f3f46;
+                                Rectangle { width: parent.width * day.progress; height: parent.height; border-radius: 3px; background: day.goal-met ? #10b981 : #38bdf8; }
+                            }
+                            Text { width: 72px; text: day.duration; color: day.goal-met ? #34d399 : #d4d4d8; font-size: 10px; font-weight: 600; horizontal-alignment: right; vertical-alignment: center; }
+                            Text { width: 16px; text: day.goal-met ? "✓" : ""; color: #34d399; font-size: 11px; vertical-alignment: center; }
                         }
                     }
                 }

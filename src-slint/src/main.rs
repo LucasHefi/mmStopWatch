@@ -516,6 +516,21 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_stats_longest(storage::format_time(snapshot.longest_ms).into());
             ui.set_stats_count(snapshot.count as i32);
             ui.set_goal_progress(snapshot.goal_progress);
+            ui.set_stats_streak(snapshot.streak_days as i32);
+            ui.set_stats_consistency(snapshot.consistency_percent as i32);
+            ui.set_stats_weekly_delta(snapshot.weekly_delta_percent);
+            ui.set_stats_days(ModelRc::new(slint::VecModel::from(
+                snapshot
+                    .daily
+                    .into_iter()
+                    .map(|day| StatsDayRow {
+                        date: day.date.format("%d.%m.").to_string().into(),
+                        duration: storage::format_time(day.duration_ms).into(),
+                        progress: day.goal_progress,
+                        goal_met: day.goal_met,
+                    })
+                    .collect::<Vec<_>>(),
+            )));
             ui.set_stats_notes(ModelRc::new(slint::VecModel::from(
                 snapshot
                     .top_notes
@@ -998,7 +1013,14 @@ fn main() -> Result<(), slint::PlatformError> {
     if let Ok(panel) = std::env::var("MMSTOPWATCH_PREVIEW_PANEL") {
         match panel.as_str() {
             "settings" => ui.invoke_open_settings(),
-            "stats" => ui.invoke_open_stats(),
+            "stats" => {
+                ui.invoke_open_stats();
+                if let Ok(tab) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_TAB")
+                    && let Ok(tab) = tab.parse::<i32>()
+                {
+                    ui.set_stats_tab(tab.clamp(0, 1));
+                }
+            }
             "new-note" => ui.set_new_note_open(true),
             "close-guard" => ui.set_close_guard_open(true),
             "onboarding" => ui.set_onboarding_visible(true),
