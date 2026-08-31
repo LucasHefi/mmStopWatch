@@ -18,7 +18,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Activity history | Append operation-safe entries and retain save timestamps | Complete (core) | `activity.json` is interchangeable with React/Tauri |
 | Statistics | Overview, all days, breakdown, trends and correlations | Partial (overview, history, calendar, day/hour trends and core insights) | Native totals equal TypeScript fixtures |
 | Goals/calendar | Daily target, streak, consistency and heat calendar | Complete (core) | Goal and date-boundary fixtures match |
-| Reports | Weekly/monthly Markdown reports and export workflow | Partial | Golden report output matches |
+| Reports | Weekly/monthly Markdown reports and export workflow | Complete (core) | Golden report output matches |
 | Settings | General, frontmatter, alerts, goals and vault profiles | Partial | All settings persist in the existing config format |
 | Profiles | Detect/create/switch/delete vault profiles | Complete (core) | Existing `.mmST-{nick}` profiles open without migration loss |
 | Onboarding | Nick, folder, frontmatter and configuration steps | Partial | Fresh install reaches a working vault without manual files |
