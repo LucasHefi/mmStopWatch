@@ -79,6 +79,21 @@ fn set_stats_calendar(ui: &AppWindow, calendar: stats::CalendarSnapshot) {
     )));
 }
 
+fn format_productivity_slope(slope_ms: i64) -> String {
+    if slope_ms.abs() <= 100 {
+        return "→ stabilní".into();
+    }
+    let arrow = if slope_ms > 0 { "↑" } else { "↓" };
+    let seconds = slope_ms.unsigned_abs() as f64 / 1_000.0;
+    if seconds >= 3_600.0 {
+        format!("{arrow} {:.1} h / den", seconds / 3_600.0)
+    } else if seconds >= 60.0 {
+        format!("{arrow} {:.1} min / den", seconds / 60.0)
+    } else {
+        format!("{arrow} {seconds:.1} s / den")
+    }
+}
+
 fn sync_settings(ui: &AppWindow, config: &AppConfig) {
     ui.set_settings_nick(config.nick.clone().unwrap_or_default().into());
     ui.set_settings_frontmatter(config.frontmatter_key.clone().into());
@@ -556,6 +571,37 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_stats_streak(snapshot.streak_days as i32);
             ui.set_stats_consistency(snapshot.consistency_percent as i32);
             ui.set_stats_weekly_delta(snapshot.weekly_delta_percent);
+            ui.set_stats_best_weekday(snapshot.best_weekday.into());
+            ui.set_stats_peak_hour(snapshot.peak_hour.into());
+            ui.set_stats_weekday_average(storage::format_time(snapshot.weekday_average_ms).into());
+            ui.set_stats_weekend_average(storage::format_time(snapshot.weekend_average_ms).into());
+            ui.set_stats_night_percent(snapshot.night_percent as i32);
+            ui.set_stats_productivity_direction(snapshot.productivity_slope_ms.signum() as i32);
+            ui.set_stats_productivity(
+                format_productivity_slope(snapshot.productivity_slope_ms).into(),
+            );
+            ui.set_stats_weekdays(ModelRc::new(slint::VecModel::from(
+                snapshot
+                    .weekdays
+                    .into_iter()
+                    .map(|row| StatsTrendRow {
+                        label: row.label.into(),
+                        duration: storage::format_time(row.duration_ms).into(),
+                        progress: row.progress,
+                    })
+                    .collect::<Vec<_>>(),
+            )));
+            ui.set_stats_hours(ModelRc::new(slint::VecModel::from(
+                snapshot
+                    .hours
+                    .into_iter()
+                    .map(|row| StatsTrendRow {
+                        label: row.label.into(),
+                        duration: storage::format_time(row.duration_ms).into(),
+                        progress: row.progress,
+                    })
+                    .collect::<Vec<_>>(),
+            )));
             set_stats_calendar(
                 &ui,
                 stats::CalendarSnapshot {
@@ -1077,7 +1123,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if let Ok(tab) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_TAB")
                     && let Ok(tab) = tab.parse::<i32>()
                 {
-                    ui.set_stats_tab(tab.clamp(0, 2));
+                    ui.set_stats_tab(tab.clamp(0, 4));
                 }
                 if let Ok(offset) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_MONTH")
                     && let Ok(offset) = offset.parse::<i32>()

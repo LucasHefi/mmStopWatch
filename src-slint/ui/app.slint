@@ -66,6 +66,12 @@ export struct StatsCalendarWeekRow {
     sunday: StatsCalendarDayRow,
 }
 
+export struct StatsTrendRow {
+    label: string,
+    duration: string,
+    progress: float,
+}
+
 export struct ProfileRow {
     nick: string,
     active: bool,
@@ -692,6 +698,27 @@ component StatsCalendarCell inherits Rectangle {
     }
 }
 
+component StatsTrendBar inherits Rectangle {
+    in property <StatsTrendRow> trend;
+    height: 34px;
+    border-radius: 7px;
+    background: #18181b;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 7px;
+        Text { width: 38px; text: root.trend.label; color: #a1a1aa; font-size: 9px; vertical-alignment: center; }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 5px;
+            border-radius: 3px;
+            background: #3f3f46;
+            Rectangle { width: parent.width * root.trend.progress; height: parent.height; border-radius: 3px; background: #38bdf8; }
+        }
+        Text { width: 66px; text: root.trend.duration; color: #d4d4d8; font-size: 9px; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "mmStopWatch";
     preferred-width: 900px;
@@ -753,6 +780,15 @@ export component AppWindow inherits Window {
     in property <[StatsDayRow]> stats-days;
     in property <string> stats-calendar-month: "";
     in property <[StatsCalendarWeekRow]> stats-calendar;
+    in property <[StatsTrendRow]> stats-weekdays;
+    in property <[StatsTrendRow]> stats-hours;
+    in property <string> stats-best-weekday: "—";
+    in property <string> stats-peak-hour: "—";
+    in property <string> stats-weekday-average: "00:00:00";
+    in property <string> stats-weekend-average: "00:00:00";
+    in property <int> stats-night-percent: 0;
+    in property <string> stats-productivity: "→ stabilní";
+    in property <int> stats-productivity-direction: 0;
     in-out property <int> stats-tab: 0;
     in property <[ProfileRow]> profiles;
     in property <float> glow-a-x: 38;
@@ -1015,6 +1051,8 @@ export component AppWindow inherits Window {
                     SmallButton { width: 105px; height: 28px; label: "Poznámky"; active: root.stats-tab == 0; clicked => { root.stats-tab = 0; } }
                     SmallButton { width: 125px; height: 28px; label: "Posledních 31 dní"; active: root.stats-tab == 1; clicked => { root.stats-tab = 1; } }
                     SmallButton { width: 105px; height: 28px; label: "Kalendář"; active: root.stats-tab == 2; clicked => { root.stats-tab = 2; } }
+                    SmallButton { width: 105px; height: 28px; label: "Trendy"; active: root.stats-tab == 3; clicked => { root.stats-tab = 3; } }
+                    SmallButton { width: 105px; height: 28px; label: "Souvislosti"; active: root.stats-tab == 4; clicked => { root.stats-tab = 4; } }
                     Rectangle { horizontal-stretch: 1; }
                 }
 
@@ -1136,6 +1174,47 @@ export component AppWindow inherits Window {
                             StatsCalendarCell { day: week.saturday; }
                             StatsCalendarCell { day: week.sunday; }
                         }
+                    }
+                }
+                if root.stats-tab == 3 : HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        border-radius: 10px;
+                        background: #202024;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 6px;
+                            Text { height: 20px; text: "DNY V TÝDNU"; color: #71717a; font-size: 9px; font-weight: 700; }
+                            ListView { for row in root.stats-weekdays : StatsTrendBar { trend: row; } }
+                        }
+                    }
+                    Rectangle {
+                        border-radius: 10px;
+                        background: #202024;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 6px;
+                            Text { height: 20px; text: "ZAČÁTKY PODLE HODINY"; color: #71717a; font-size: 9px; font-weight: 700; }
+                            ListView { for row in root.stats-hours : StatsTrendBar { trend: row; } }
+                        }
+                    }
+                }
+                if root.stats-tab == 4 : VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle { border-radius: 10px; background: #202024; VerticalLayout { padding: 12px; spacing: 5px; Text { text: "NEJLEPŠÍ DEN"; color: #71717a; font-size: 9px; font-weight: 700; } Text { text: root.stats-best-weekday; color: #34d399; font-size: 22px; font-weight: 700; } Text { text: "podle průměru záznamů"; color: #52525b; font-size: 9px; } } }
+                        Rectangle { border-radius: 10px; background: #202024; VerticalLayout { padding: 12px; spacing: 5px; Text { text: "NEJSILNĚJŠÍ HODINA"; color: #71717a; font-size: 9px; font-weight: 700; } Text { text: root.stats-peak-hour; color: #38bdf8; font-size: 22px; font-weight: 700; } Text { text: "začátky časových úseků"; color: #52525b; font-size: 9px; } } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle { border-radius: 10px; background: #202024; VerticalLayout { padding: 12px; spacing: 5px; Text { text: "PRACOVNÍ DNY / ZÁZNAM"; color: #71717a; font-size: 9px; font-weight: 700; } Text { text: root.stats-weekday-average; color: #e4e4e7; font-size: 17px; font-weight: 700; } } }
+                        Rectangle { border-radius: 10px; background: #202024; VerticalLayout { padding: 12px; spacing: 5px; Text { text: "VÍKEND / ZÁZNAM"; color: #71717a; font-size: 9px; font-weight: 700; } Text { text: root.stats-weekend-average; color: #e4e4e7; font-size: 17px; font-weight: 700; } } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Rectangle { border-radius: 10px; background: #202024; VerticalLayout { padding: 12px; spacing: 5px; Text { text: "NOČNÍ PRÁCE 22–06"; color: #71717a; font-size: 9px; font-weight: 700; } Text { text: root.stats-night-percent + "%"; color: #a78bfa; font-size: 22px; font-weight: 700; } } }
+                        Rectangle { border-radius: 10px; background: #202024; VerticalLayout { padding: 12px; spacing: 5px; Text { text: "PRODUKTIVITA 31 DNÍ"; color: #71717a; font-size: 9px; font-weight: 700; } Text { text: root.stats-productivity; color: root.stats-productivity-direction > 0 ? #34d399 : root.stats-productivity-direction < 0 ? #fb7185 : #a1a1aa; font-size: 15px; font-weight: 700; } } }
                     }
                 }
                 HorizontalLayout {

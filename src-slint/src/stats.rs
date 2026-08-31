@@ -2,7 +2,7 @@ use crate::{
     activity::{ActivityEntry, load_activity},
     config::AppConfig,
 };
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Timelike};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Debug, Default)]
@@ -36,6 +36,13 @@ pub struct CalendarSnapshot {
     pub days: Vec<CalendarDay>,
 }
 
+#[derive(Clone, Debug)]
+pub struct TrendTotal {
+    pub label: String,
+    pub duration_ms: u64,
+    pub progress: f32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct StatsSnapshot {
     pub total_ms: u64,
@@ -52,6 +59,14 @@ pub struct StatsSnapshot {
     pub daily: Vec<DayTotal>,
     pub calendar_month: String,
     pub calendar: Vec<CalendarDay>,
+    pub weekdays: Vec<TrendTotal>,
+    pub hours: Vec<TrendTotal>,
+    pub best_weekday: String,
+    pub peak_hour: String,
+    pub weekday_average_ms: u64,
+    pub weekend_average_ms: u64,
+    pub night_percent: u32,
+    pub productivity_slope_ms: i64,
     pub top_notes: Vec<NoteTotal>,
 }
 
@@ -156,12 +171,158 @@ fn snapshot_from_entries(
         })
         .collect();
     (result.calendar_month, result.calendar) = calendar_month(&days, today, today, daily_goal_ms);
+    result.weekdays = weekday_distribution(entries);
+    result.hours = hourly_distribution(entries);
+    (
+        result.best_weekday,
+        result.peak_hour,
+        result.weekday_average_ms,
+        result.weekend_average_ms,
+        result.night_percent,
+        result.productivity_slope_ms,
+    ) = insight_summary(entries, &days, today);
     result.top_notes = notes.into_values().collect();
     result
         .top_notes
         .sort_by_key(|note| std::cmp::Reverse(note.duration_ms));
     result.top_notes.truncate(12);
     result
+}
+
+fn normalized_totals(labels: impl IntoIterator<Item = String>, totals: &[u64]) -> Vec<TrendTotal> {
+    let maximum = totals.iter().copied().max().unwrap_or(0);
+    labels
+        .into_iter()
+        .zip(totals.iter().copied())
+        .map(|(label, duration_ms)| TrendTotal {
+            label,
+            duration_ms,
+            progress: if maximum == 0 {
+                0.0
+            } else {
+                duration_ms as f32 / maximum as f32
+            },
+        })
+        .collect()
+}
+
+fn weekday_distribution(entries: &[ActivityEntry]) -> Vec<TrendTotal> {
+    let mut totals = [0_u64; 7];
+    for entry in entries {
+        if let Some(moment) = Local.timestamp_millis_opt(entry.timestamp).single() {
+            let index = moment.weekday().num_days_from_monday() as usize;
+            totals[index] = totals[index].saturating_add(entry.duration_ms);
+        }
+    }
+    normalized_totals(
+        ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"].map(str::to_owned),
+        &totals,
+    )
+}
+
+fn hourly_distribution(entries: &[ActivityEntry]) -> Vec<TrendTotal> {
+    let mut totals = [0_u64; 24];
+    for entry in entries {
+        if let Some(moment) = Local.timestamp_millis_opt(entry.timestamp).single() {
+            let index = moment.hour() as usize;
+            totals[index] = totals[index].saturating_add(entry.duration_ms);
+        }
+    }
+    normalized_totals((0..24).map(|hour| format!("{hour:02}:00")), &totals)
+}
+
+fn insight_summary(
+    entries: &[ActivityEntry],
+    days: &BTreeMap<NaiveDate, u64>,
+    today: NaiveDate,
+) -> (String, String, u64, u64, u32, i64) {
+    let labels = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+    let mut weekday_totals = [0_u64; 7];
+    let mut weekday_counts = [0_u64; 7];
+    let mut hour_totals = [0_u64; 24];
+    let mut working_ms = 0_u64;
+    let mut working_count = 0_u64;
+    let mut weekend_ms = 0_u64;
+    let mut weekend_count = 0_u64;
+    let mut total_ms = 0_u64;
+    let mut night_ms = 0_u64;
+
+    for entry in entries {
+        let Some(moment) = Local.timestamp_millis_opt(entry.timestamp).single() else {
+            continue;
+        };
+        let weekday = moment.weekday().num_days_from_monday() as usize;
+        let hour = moment.hour() as usize;
+        weekday_totals[weekday] = weekday_totals[weekday].saturating_add(entry.duration_ms);
+        weekday_counts[weekday] = weekday_counts[weekday].saturating_add(1);
+        hour_totals[hour] = hour_totals[hour].saturating_add(entry.duration_ms);
+        total_ms = total_ms.saturating_add(entry.duration_ms);
+        if !(6..22).contains(&hour) {
+            night_ms = night_ms.saturating_add(entry.duration_ms);
+        }
+        if weekday >= 5 {
+            weekend_ms = weekend_ms.saturating_add(entry.duration_ms);
+            weekend_count = weekend_count.saturating_add(1);
+        } else {
+            working_ms = working_ms.saturating_add(entry.duration_ms);
+            working_count = working_count.saturating_add(1);
+        }
+    }
+
+    let best_weekday = (0..7)
+        .max_by_key(|index| {
+            weekday_totals[*index]
+                .checked_div(weekday_counts[*index])
+                .unwrap_or(0)
+        })
+        .filter(|index| weekday_counts[*index] > 0)
+        .map(|index| labels[index].to_owned())
+        .unwrap_or_else(|| "—".into());
+    let peak_hour = (0..24)
+        .max_by_key(|hour| hour_totals[*hour])
+        .filter(|hour| hour_totals[*hour] > 0)
+        .map(|hour| format!("{hour:02}:00"))
+        .unwrap_or_else(|| "—".into());
+    let productivity_slope_ms = productivity_slope(days, today, 31);
+
+    (
+        best_weekday,
+        peak_hour,
+        working_ms.checked_div(working_count).unwrap_or(0),
+        weekend_ms.checked_div(weekend_count).unwrap_or(0),
+        if total_ms == 0 {
+            0
+        } else {
+            ((night_ms as f64 / total_ms as f64) * 100.0).round() as u32
+        },
+        productivity_slope_ms,
+    )
+}
+
+fn productivity_slope(days: &BTreeMap<NaiveDate, u64>, today: NaiveDate, period_days: i64) -> i64 {
+    if period_days < 2 {
+        return 0;
+    }
+    let n = period_days as f64;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut sum_xy = 0.0;
+    let mut sum_x2 = 0.0;
+    for index in 0..period_days {
+        let x = index as f64;
+        let date = today - Duration::days(period_days - 1 - index);
+        let y = days.get(&date).copied().unwrap_or(0) as f64;
+        sum_x += x;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_x2 += x * x;
+    }
+    let denominator = n * sum_x2 - sum_x * sum_x;
+    if denominator == 0.0 {
+        0
+    } else {
+        ((n * sum_xy - sum_x * sum_y) / denominator).round() as i64
+    }
 }
 
 fn calendar_month(
@@ -353,5 +514,33 @@ mod tests {
             shifted_month(today, 12),
             NaiveDate::from_ymd_opt(2027, 1, 1).unwrap()
         );
+    }
+
+    #[test]
+    fn trend_distributions_have_stable_shapes_and_normalization() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
+        let entries = vec![entry(today, 60_000), entry(today, 30_000)];
+        let weekdays = weekday_distribution(&entries);
+        let hours = hourly_distribution(&entries);
+        assert_eq!(weekdays.len(), 7);
+        assert_eq!(hours.len(), 24);
+        assert_eq!(
+            weekdays.iter().map(|row| row.duration_ms).sum::<u64>(),
+            90_000
+        );
+        assert_eq!(hours.iter().map(|row| row.duration_ms).sum::<u64>(), 90_000);
+        assert!(weekdays.iter().any(|row| row.progress == 1.0));
+        assert!(hours.iter().any(|row| row.progress == 1.0));
+    }
+
+    #[test]
+    fn insights_identify_peak_day_hour_and_night_share() {
+        let today = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
+        let result = snapshot_from_entries(&[entry(today, 90_000)], 60_000, local_noon(today));
+        assert_eq!(result.best_weekday, "Po");
+        assert_eq!(result.peak_hour, "12:00");
+        assert_eq!(result.weekday_average_ms, 90_000);
+        assert_eq!(result.weekend_average_ms, 0);
+        assert_eq!(result.night_percent, 0);
     }
 }

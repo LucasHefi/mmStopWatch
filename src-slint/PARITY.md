@@ -16,7 +16,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Close guard | Save all, discard all, cancel close | Complete | Active timers cannot be lost accidentally |
 | Markdown writes | Atomic frontmatter update preserving body and unrelated fields | Complete (core) | Existing storage compatibility tests pass |
 | Activity history | Append operation-safe entries and retain save timestamps | Complete (core) | `activity.json` is interchangeable with React/Tauri |
-| Statistics | Overview, all days, breakdown, trends and correlations | Partial (overview + 31-day history) | Native totals equal TypeScript fixtures |
+| Statistics | Overview, all days, breakdown, trends and correlations | Partial (overview, history, calendar, day/hour trends and core insights) | Native totals equal TypeScript fixtures |
 | Goals/calendar | Daily target, streak, consistency and heat calendar | Complete (core) | Goal and date-boundary fixtures match |
 | Reports | Weekly/monthly Markdown reports and export workflow | Partial | Golden report output matches |
 | Settings | General, frontmatter, alerts, goals and vault profiles | Partial | All settings persist in the existing config format |
@@ -33,6 +33,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 Release build measured on 2026-08-31 with the software renderer and a 43-note vault:
 
 - idle: 24.7 MB RSS / 16.0 MB PSS, 2.6% of one CPU core;
+- statistics with all native models loaded: 25.3 MB RSS / 16.5 MB PSS, 4.7% of one CPU core;
 - four active 50 ms timers: 31.4 MB RSS / 22.8 MB PSS, 14.6% of one CPU core;
 - swap usage: 0 MB in both scenarios.
 
