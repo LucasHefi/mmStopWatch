@@ -145,27 +145,54 @@ impl AppConfig {
         }
         write_json(&path, &document)
     }
+
+    pub fn available_profiles(&self) -> Vec<AppConfig> {
+        let Some(vault) = self.vault_path.as_deref() else {
+            return Vec::new();
+        };
+        discover_profile_dirs(vault)
+            .into_iter()
+            .filter_map(|directory| load_profile_directory(vault, &directory))
+            .collect()
+    }
+
+    pub fn switch_profile(&mut self, nick: &str) -> io::Result<()> {
+        let vault = self
+            .vault_path
+            .clone()
+            .ok_or_else(|| io::Error::other("není vybraný vault"))?;
+        let profile = self
+            .available_profiles()
+            .into_iter()
+            .find(|profile| profile.nick.as_deref() == Some(nick))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "profil neexistuje"))?;
+        *self = profile;
+        self.vault_path = Some(vault);
+        self.save()
+    }
 }
 
 fn load_vault_profile(vault: &Path) -> Option<AppConfig> {
     for directory in discover_profile_dirs(vault) {
-        let path = directory.join("config.json");
-        let Ok(raw) = fs::read_to_string(path) else {
-            continue;
-        };
-        let Ok(mut config) = serde_json::from_str::<AppConfig>(&raw) else {
-            continue;
-        };
-        if config.nick.is_none() {
-            config.nick = directory
-                .file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|name| name.strip_prefix(".mmST-"))
-                .map(str::to_owned);
+        if let Some(config) = load_profile_directory(vault, &directory) {
+            return Some(config);
         }
-        return Some(config);
     }
     None
+}
+
+fn load_profile_directory(vault: &Path, directory: &Path) -> Option<AppConfig> {
+    let raw = fs::read_to_string(directory.join("config.json")).ok()?;
+    let mut config = serde_json::from_str::<AppConfig>(&raw).ok()?;
+    config.vault_path = Some(vault.to_path_buf());
+    if config.nick.is_none() {
+        config.nick = directory
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix(".mmST-"))
+            .map(str::to_owned);
+    }
+    Some(config)
 }
 
 fn discover_profile_dirs(vault: &Path) -> Vec<PathBuf> {
@@ -276,6 +303,16 @@ mod tests {
         .expect("parse merged config");
         assert_eq!(merged["language"], "de");
         assert_eq!(merged["unknownFutureField"], true);
+        let mut second = imported.clone();
+        second.nick = Some("second".into());
+        second.save_profile().expect("create second profile");
+        let profiles = imported.available_profiles();
+        assert_eq!(profiles.len(), 2);
+        assert!(
+            profiles
+                .iter()
+                .any(|profile| profile.nick.as_deref() == Some("second"))
+        );
         fs::remove_dir_all(vault).expect("remove fixture");
     }
 }

@@ -7,7 +7,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Main shell | Timer workspace left, 240–400 px note sidebar right, mobile drawer | Partial | 900×600 and 1280×800 screenshots match hierarchy, spacing and colours |
 | Background | Dark zinc canvas, subtle moving beams/dots and card glow | In progress | Animation remains smooth with software renderer and no growing allocations |
 | Note index | Recursive Markdown scan, search, preview, parse errors, tags | Partial | Same vault produces the same visible notes and totals |
-| Note list | Virtual rows, pinning, edit, preview, Obsidian open, active state | Partial | Every row action works and a large vault keeps stable memory |
+| Note list | Virtual rows, pinning, edit, preview, Obsidian open, active state | Complete (core) | Every row action works and a large vault keeps stable memory |
 | New note | Safe path validation, collision handling, initial time and tags | Complete | New Markdown is compatible with the existing app |
 | Timers | Multiple independent monotonic timers, start/pause/discard/save | Complete (core) | Timer drift and duplicate-save tests pass |
 | Timer cards | Colour/glow, hundredths, presets, custom estimate, progress, expiry | In progress | Running card visually matches and all controls work |
@@ -20,7 +20,7 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Goals/calendar | Daily target, streak, heat calendar | Missing | Goal and date-boundary fixtures match |
 | Reports | Weekly/monthly Markdown reports and export workflow | Partial | Golden report output matches |
 | Settings | General, frontmatter, alerts, goals and vault profiles | Partial | All settings persist in the existing config format |
-| Profiles | Detect/create/switch/delete vault profiles | Missing | Existing `.mmST-{nick}` profiles open without migration loss |
+| Profiles | Detect/create/switch/delete vault profiles | Partial | Existing `.mmST-{nick}` profiles open without migration loss |
 | Onboarding | Nick, folder, frontmatter and configuration steps | Partial | Fresh install reaches a working vault without manual files |
 | Notifications | Periodic reminder, estimate limit alert, overlay and custom sound | Partial | Enabled/disabled paths and one-shot expiry are tested |
 | Languages | Existing 15 language catalogues | Missing | Runtime language switch covers every native screen |

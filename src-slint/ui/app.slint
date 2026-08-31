@@ -29,6 +29,11 @@ export struct StatsRow {
     count: int,
 }
 
+export struct ProfileRow {
+    nick: string,
+    active: bool,
+}
+
 component AmbientOrb inherits Rectangle {
     in property <color> glow-color;
     border-radius: self.width / 2;
@@ -286,12 +291,24 @@ component OverlayLayer inherits Rectangle {
     in-out property <string> new-note-time;
     in-out property <string> new-note-tags;
     in-out property <bool> close-guard-open;
+    in-out property <bool> preview-open;
+    in-out property <string> preview-title;
+    in-out property <string> preview-path;
+    in-out property <string> preview-body;
+    in-out property <bool> edit-note-open;
+    in-out property <string> edit-note-title;
+    in-out property <string> edit-note-path;
+    in-out property <string> edit-note-time;
     in property <string> vault-path;
+    in property <[ProfileRow]> profiles;
     callback choose-folder;
     callback save-settings;
     callback create-note;
     callback close-save-all;
     callback close-discard-all;
+    callback save-note-edit;
+    callback switch-profile(int);
+    callback create-profile;
     background: transparent;
 
     if root.settings-open : Rectangle {
@@ -388,9 +405,26 @@ component OverlayLayer inherits Rectangle {
                         spacing: 10px;
                         Text { text: "Aktivní vault"; color: #a1a1aa; font-size: 10px; }
                         Text { text: root.vault-path; color: #e4e4e7; font-size: 11px; overflow: elide; }
-                        Text { text: "Profil: " + (root.settings-nick == "" ? "bez názvu" : root.settings-nick); color: #71717a; font-size: 10px; }
+                        HorizontalLayout {
+                            height: 30px;
+                            Text { text: "Dostupné profily"; color: #a1a1aa; font-size: 10px; vertical-alignment: center; }
+                            SmallButton { width: 145px; label: "Vytvořit z názvu výše"; clicked => root.create-profile(); }
+                        }
+                        ListView {
+                            for profile[index] in root.profiles : Rectangle {
+                                height: 38px;
+                                border-radius: 7px;
+                                background: profile.active ? #16302b : #202024;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 6px;
+                                    Text { text: profile.nick; color: profile.active ? #6ee7b7 : #d4d4d8; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                                    Text { text: profile.active ? "AKTIVNÍ" : ""; color: #34d399; font-size: 8px; vertical-alignment: center; }
+                                    SmallButton { width: 72px; height: 27px; label: profile.active ? "Vybráno" : "Přepnout"; active: profile.active; clicked => root.switch-profile(index); }
+                                }
+                            }
+                        }
                         SmallButton { width: 180px; label: "Vybrat jiný vault"; clicked => root.choose-folder(); }
-                        Rectangle { vertical-stretch: 1; }
                     }
                 }
 
@@ -464,6 +498,67 @@ component OverlayLayer inherits Rectangle {
         }
     }
 
+    if root.preview-open : Rectangle {
+        background: #000000b8;
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(parent.width - 40px, 540px);
+            height: 330px;
+            border-radius: 16px;
+            background: #18181bf8;
+            border-width: 1px;
+            border-color: #ffffff12;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                HorizontalLayout {
+                    height: 30px;
+                    VerticalLayout {
+                        Text { text: root.preview-title; color: #fafafa; font-size: 16px; font-weight: 700; overflow: elide; }
+                        Text { text: root.preview-path; color: #52525b; font-size: 9px; overflow: elide; }
+                    }
+                    SmallButton { width: 30px; label: "×"; clicked => { root.preview-open = false; } }
+                }
+                Rectangle { height: 1px; background: #ffffff0d; }
+                Text { vertical-stretch: 1; text: root.preview-body == "" ? "Poznámka nemá textový náhled." : root.preview-body; color: #d4d4d8; font-size: 11px; wrap: word-wrap; }
+                SmallButton { width: 100px; label: "Zavřít"; clicked => { root.preview-open = false; } }
+            }
+        }
+    }
+
+    if root.edit-note-open : Rectangle {
+        background: #000000b8;
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(parent.width - 40px, 400px);
+            height: 250px;
+            border-radius: 16px;
+            background: #18181bf8;
+            border-width: 1px;
+            border-color: #ffffff12;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                HorizontalLayout {
+                    height: 30px;
+                    Text { text: "Upravit čas — " + root.edit-note-title; color: #fafafa; font-size: 16px; font-weight: 700; overflow: elide; }
+                    SmallButton { width: 30px; label: "×"; clicked => { root.edit-note-open = false; } }
+                }
+                Text { text: "Celkový čas (HH:mm:ss nebo sekundy)"; color: #a1a1aa; font-size: 10px; }
+                LineEdit { text <=> root.edit-note-time; placeholder-text: "00:00:00"; }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    height: 34px;
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallButton { width: 100px; label: "Zrušit"; clicked => { root.edit-note-open = false; } }
+                    SmallButton { width: 110px; label: "Uložit"; active: true; clicked => root.save-note-edit(); }
+                }
+            }
+        }
+    }
+
     if root.onboarding-visible : Rectangle {
         background: #09090bf4;
         AmbientOrb {
@@ -501,7 +596,10 @@ component NoteCard inherits Rectangle {
     in property <NoteRow> note;
     callback open;
     callback pin;
-    height: 103px;
+    callback preview;
+    callback edit;
+    callback obsidian;
+    height: 108px;
     border-radius: 12px;
     background: touch.has-hover ? #27272ad9 : note.active ? #202323e8 : #18181bcc;
     border-width: 1px;
@@ -521,7 +619,13 @@ component NoteCard inherits Rectangle {
             Text { text: root.note.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; }
             Text { text: root.note.active ? "▶" : root.note.duration; color: root.note.active ? #34d399 : #a1a1aa; font-size: 11px; font-weight: 600; vertical-alignment: center; }
         }
-        Text { text: root.note.tags; color: #71717a; font-size: 9px; overflow: elide; }
+        HorizontalLayout {
+            height: 20px;
+            Text { text: root.note.tags; color: #71717a; font-size: 9px; overflow: elide; vertical-alignment: center; }
+            SmallButton { width: 23px; height: 20px; label: "✎"; clicked => root.edit(); }
+            SmallButton { width: 23px; height: 20px; label: "◉"; clicked => root.preview(); }
+            SmallButton { width: 23px; height: 20px; label: "↗"; clicked => root.obsidian(); }
+        }
         Text { text: root.note.preview; color: #52525b; font-size: 9px; overflow: elide; }
     }
 }
@@ -561,6 +665,14 @@ export component AppWindow inherits Window {
     in-out property <string> new-note-time: "";
     in-out property <string> new-note-tags: "";
     in-out property <bool> close-guard-open: false;
+    in-out property <bool> preview-open: false;
+    in-out property <string> preview-title: "";
+    in-out property <string> preview-path: "";
+    in-out property <string> preview-body: "";
+    in-out property <bool> edit-note-open: false;
+    in-out property <string> edit-note-title: "";
+    in-out property <string> edit-note-path: "";
+    in-out property <string> edit-note-time: "";
     in-out property <bool> stats-open: false;
     in property <string> stats-total: "00:00:00";
     in property <string> stats-today: "00:00:00";
@@ -571,6 +683,7 @@ export component AppWindow inherits Window {
     in property <int> stats-count: 0;
     in property <float> goal-progress: 0;
     in property <[StatsRow]> stats-notes;
+    in property <[ProfileRow]> profiles;
     in property <float> glow-a-x: 38;
     in property <float> glow-a-y: 18;
     in property <float> glow-b-x: 70;
@@ -587,6 +700,9 @@ export component AppWindow inherits Window {
     callback set-timer-view(bool);
     callback set-layout-columns(int);
     callback toggle-pin(int);
+    callback preview-note(int);
+    callback edit-note(int);
+    callback open-obsidian(int);
     callback open-stats;
     callback export-report(bool);
     callback open-settings;
@@ -594,6 +710,9 @@ export component AppWindow inherits Window {
     callback create-note;
     callback close-save-all;
     callback close-discard-all;
+    callback save-note-edit;
+    callback switch-profile(int);
+    callback create-profile;
 
     for row in 10 : Rectangle {
         background: transparent;
@@ -762,6 +881,9 @@ export component AppWindow inherits Window {
                         note: note;
                         open => root.add-timer(index);
                         pin => root.toggle-pin(index);
+                        preview => root.preview-note(index);
+                        edit => root.edit-note(index);
+                        obsidian => root.open-obsidian(index);
                     }
                 }
             }
@@ -875,11 +997,23 @@ export component AppWindow inherits Window {
         new-note-time <=> root.new-note-time;
         new-note-tags <=> root.new-note-tags;
         close-guard-open <=> root.close-guard-open;
+        preview-open <=> root.preview-open;
+        preview-title <=> root.preview-title;
+        preview-path <=> root.preview-path;
+        preview-body <=> root.preview-body;
+        edit-note-open <=> root.edit-note-open;
+        edit-note-title <=> root.edit-note-title;
+        edit-note-path <=> root.edit-note-path;
+        edit-note-time <=> root.edit-note-time;
         vault-path: root.vault-path;
+        profiles: root.profiles;
         choose-folder => root.choose-folder();
         save-settings => root.save-settings();
         create-note => root.create-note();
         close-save-all => root.close-save-all();
         close-discard-all => root.close-discard-all();
+        save-note-edit => root.save-note-edit();
+        switch-profile(index) => root.switch-profile(index);
+        create-profile => root.create-profile();
     }
 }

@@ -1,6 +1,7 @@
 mod activity;
 mod app_state;
 mod config;
+mod integration;
 mod notification;
 mod report;
 mod stats;
@@ -11,6 +12,7 @@ use activity::append_activity;
 use app_state::{AppState, COLORS, note_rows, refresh_models, set_status, timer_row};
 use chrono::Local;
 use config::AppConfig;
+use integration::{obsidian_url, open_url};
 use notification::show as show_notification;
 use report::save_report;
 use slint::{CloseRequestResponse, Model, ModelRc, Timer, TimerMode};
@@ -58,6 +60,19 @@ fn sync_settings(ui: &AppWindow, config: &AppConfig) {
         .and_then(|value| value.parse::<i32>().ok())
         .unwrap_or(1);
     ui.set_layout_columns(columns.clamp(1, 4));
+    ui.set_profiles(ModelRc::new(slint::VecModel::from(
+        config
+            .available_profiles()
+            .into_iter()
+            .map(|profile| {
+                let nick = profile.nick.unwrap_or_else(|| "profil".into());
+                ProfileRow {
+                    active: config.nick.as_deref() == Some(nick.as_str()),
+                    nick: nick.into(),
+                }
+            })
+            .collect::<Vec<_>>(),
+    )));
 }
 
 fn valid_key(value: &str) -> bool {
@@ -115,6 +130,86 @@ fn main() -> Result<(), slint::PlatformError> {
     let diagnostics = std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some();
     let state = Rc::new(RefCell::new(AppState::new(config, diagnostics)));
     ui.set_timers(ModelRc::from(state.borrow().timer_model.clone()));
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_switch_profile(move |index| {
+            let Some(ui) = weak.upgrade() else { return };
+            if !state.borrow().timers.is_empty() {
+                set_status(
+                    &ui,
+                    "Před přepnutím profilu uložte nebo zahoďte časomíry.",
+                    true,
+                );
+                return;
+            }
+            let nick = {
+                let state = state.borrow();
+                state
+                    .config
+                    .available_profiles()
+                    .get(index as usize)
+                    .and_then(|profile| profile.nick.clone())
+            };
+            let Some(nick) = nick else { return };
+            let mut state = state.borrow_mut();
+            match state.config.switch_profile(&nick) {
+                Ok(()) => match state.reload() {
+                    Ok(_) => {
+                        sync_settings(&ui, &state.config);
+                        refresh_models(&ui, &state);
+                        set_status(&ui, format!("Aktivní profil: {nick}"), false);
+                    }
+                    Err(error) => set_status(&ui, error, true),
+                },
+                Err(error) => set_status(&ui, format!("Profil nelze přepnout: {error}"), true),
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_create_profile(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            if !state.borrow().timers.is_empty() {
+                set_status(
+                    &ui,
+                    "Před vytvořením profilu uložte nebo zahoďte časomíry.",
+                    true,
+                );
+                return;
+            }
+            let nick = ui.get_settings_nick().trim().to_owned();
+            if !valid_key(&nick) {
+                set_status(&ui, "Zadejte platný název nového profilu.", true);
+                return;
+            }
+            let mut state = state.borrow_mut();
+            if state
+                .config
+                .available_profiles()
+                .iter()
+                .any(|profile| profile.nick.as_deref() == Some(nick.as_str()))
+            {
+                set_status(&ui, "Profil s tímto názvem už existuje.", true);
+                return;
+            }
+            state.config.nick = Some(nick.clone());
+            state.config.onboarding_complete = true;
+            if let Err(error) = state
+                .config
+                .save_profile()
+                .and_then(|()| state.config.save())
+            {
+                set_status(&ui, format!("Profil nelze vytvořit: {error}"), true);
+                return;
+            }
+            sync_settings(&ui, &state.config);
+            set_status(&ui, format!("Profil „{nick}“ byl vytvořen."), false);
+        });
+    }
 
     {
         let weak = ui.as_weak();
@@ -448,6 +543,108 @@ fn main() -> Result<(), slint::PlatformError> {
             state.search = query.to_string();
             state.apply_filter();
             ui.set_notes(note_rows(&state));
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_preview_note(move |visible_index| {
+            let Some(ui) = weak.upgrade() else { return };
+            let state = state.borrow();
+            let Some(note_index) = state.visible_notes.get(visible_index as usize).copied() else {
+                return;
+            };
+            let note = &state.notes[note_index];
+            ui.set_preview_title(note.name.clone().into());
+            ui.set_preview_path(note.relative_path.clone().into());
+            ui.set_preview_body(note.preview.clone().into());
+            ui.set_preview_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_edit_note(move |visible_index| {
+            let Some(ui) = weak.upgrade() else { return };
+            let state = state.borrow();
+            let Some(note_index) = state.visible_notes.get(visible_index as usize).copied() else {
+                return;
+            };
+            let note = &state.notes[note_index];
+            if state
+                .timers
+                .iter()
+                .any(|timer| timer.note_path == note.path.to_string_lossy())
+            {
+                set_status(
+                    &ui,
+                    "Čas aktivní poznámky upravte přes její časomíru.",
+                    true,
+                );
+                return;
+            }
+            ui.set_edit_note_title(note.name.clone().into());
+            ui.set_edit_note_path(note.path.to_string_lossy().into_owned().into());
+            ui.set_edit_note_time(storage::format_time(note.duration_ms).into());
+            ui.set_edit_note_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_save_note_edit(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let path = PathBuf::from(ui.get_edit_note_path().as_str());
+            let Some(duration) = storage::parse_time_ms(ui.get_edit_note_time().as_str()) else {
+                set_status(&ui, "Zadaný čas není platný.", true);
+                return;
+            };
+            let mut state = state.borrow_mut();
+            if !state.notes.iter().any(|note| note.path == path) {
+                set_status(&ui, "Poznámka už ve vaultu neexistuje.", true);
+                return;
+            }
+            match write_total_duration(&path, &state.config.frontmatter_key, duration) {
+                Ok(()) => {
+                    if let Some(note) = state.notes.iter_mut().find(|note| note.path == path) {
+                        note.duration_ms = duration;
+                    }
+                    refresh_models(&ui, &state);
+                    ui.set_edit_note_open(false);
+                    set_status(&ui, "Čas poznámky byl upraven.", false);
+                }
+                Err(error) => set_status(&ui, format!("Úprava poznámky selhala: {error}"), true),
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_open_obsidian(move |visible_index| {
+            let Some(ui) = weak.upgrade() else { return };
+            let state = state.borrow();
+            let Some(note_index) = state.visible_notes.get(visible_index as usize).copied() else {
+                return;
+            };
+            let note = &state.notes[note_index];
+            let vault = if state.config.obsidian_vault.trim().is_empty() {
+                state
+                    .config
+                    .vault_path
+                    .as_deref()
+                    .and_then(Path::file_name)
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Vault")
+            } else {
+                state.config.obsidian_vault.as_str()
+            };
+            if let Err(error) = open_url(&obsidian_url(vault, &note.relative_path)) {
+                set_status(&ui, format!("Obsidian nelze otevřít: {error}"), true);
+            }
         });
     }
 
