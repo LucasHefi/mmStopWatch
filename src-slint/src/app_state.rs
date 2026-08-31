@@ -107,6 +107,51 @@ impl AppState {
             };
             self.timers.push(timer);
         }
+        self.apply_timer_order();
+    }
+
+    /// Applies the stable note-path order shared with the React/Tauri version.
+    /// Unknown timers stay at the end in their current order.
+    pub fn apply_timer_order(&mut self) {
+        let order = &self.config.timer_layout.order;
+        self.timers.sort_by_key(|timer| {
+            order
+                .iter()
+                .position(|path| path == &timer.note_path)
+                .unwrap_or(usize::MAX)
+        });
+    }
+
+    /// Persists the current active order without forgetting inactive notes that
+    /// may be opened again later.
+    pub fn remember_timer_order(&mut self) {
+        let active = self
+            .timers
+            .iter()
+            .map(|timer| timer.note_path.clone())
+            .collect::<Vec<_>>();
+        let mut order = active.clone();
+        order.extend(
+            self.config
+                .timer_layout
+                .order
+                .iter()
+                .filter(|path| !active.contains(path))
+                .cloned(),
+        );
+        self.config.timer_layout.order = order;
+    }
+
+    pub fn move_timer(&mut self, index: usize, offset: isize) -> bool {
+        let Some(target) = index.checked_add_signed(offset) else {
+            return false;
+        };
+        if index >= self.timers.len() || target >= self.timers.len() {
+            return false;
+        }
+        self.timers.swap(index, target);
+        self.remember_timer_order();
+        true
     }
 
     pub fn checkpoint_timers(&self) {
@@ -263,4 +308,43 @@ fn grid_row(state: &AppState, start: usize, columns: usize) -> TimerGridRow {
 pub fn set_status(ui: &AppWindow, message: impl Into<SharedString>, error: bool) {
     ui.set_status_message(message.into());
     ui.set_status_error(error);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timer(path: &str) -> NativeTimer {
+        NativeTimer::new(
+            path.into(),
+            path.into(),
+            0,
+            None,
+            slint::Color::from_rgb_u8(255, 255, 255),
+        )
+    }
+
+    #[test]
+    fn applies_and_updates_persisted_timer_order() {
+        let mut state = AppState::new(AppConfig::default(), true);
+        state.config.timer_layout.order = vec!["b.md".into(), "a.md".into()];
+        state.timers = vec![timer("a.md"), timer("new.md"), timer("b.md")];
+
+        state.apply_timer_order();
+        assert_eq!(
+            state
+                .timers
+                .iter()
+                .map(|timer| timer.note_path.as_str())
+                .collect::<Vec<_>>(),
+            ["b.md", "a.md", "new.md"]
+        );
+
+        assert!(state.move_timer(1, -1));
+        assert_eq!(
+            state.config.timer_layout.order[..3],
+            ["a.md", "b.md", "new.md"]
+        );
+        assert!(!state.move_timer(0, -1));
+    }
 }

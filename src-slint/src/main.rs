@@ -16,7 +16,7 @@ use app_state::{
 use chrono::{Datelike, Local};
 use config::AppConfig;
 use integration::{obsidian_url, open_url};
-use notification::show as show_notification;
+use notification::{claim_expiration_once, play_sound, show as show_notification};
 use report::save_report;
 use slint::{CloseRequestResponse, Model, ModelRc, Timer, TimerMode};
 use stats::snapshot as stats_snapshot;
@@ -104,6 +104,20 @@ fn sync_settings(ui: &AppWindow, config: &AppConfig) {
     ui.set_settings_auto_refresh(config.auto_refresh_interval.to_string().into());
     ui.set_settings_notifications(config.notifications.enabled);
     ui.set_settings_notification_interval(config.notifications.interval_minutes.to_string().into());
+    ui.set_settings_limit_enabled(config.timer_limit_alert.enabled);
+    ui.set_settings_limit_sound_enabled(config.timer_limit_alert.sound_enabled);
+    ui.set_settings_limit_sound_path(
+        config
+            .timer_limit_alert
+            .sound_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default()
+            .into(),
+    );
+    ui.set_settings_limit_notification_enabled(config.timer_limit_alert.notifications_enabled);
+    ui.set_settings_limit_overlay(config.timer_limit_alert.show_overlay);
+    ui.set_settings_limit_message(config.timer_limit_alert.custom_message.clone().into());
     ui.set_table_view(config.timer_view_mode == "table");
     let columns = config
         .timer_layout
@@ -133,6 +147,66 @@ fn valid_key(value: &str) -> bool {
         && value
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+}
+
+fn apply_editable_settings(ui: &AppWindow, config: &mut AppConfig) -> Result<(), String> {
+    let frontmatter = ui.get_settings_frontmatter().trim().to_owned();
+    let estimate_key = ui.get_settings_estimate_key().trim().to_owned();
+    let nick = ui.get_settings_nick().trim().to_owned();
+    if !valid_key(&frontmatter)
+        || !valid_key(&estimate_key)
+        || (!nick.is_empty() && !valid_key(&nick))
+    {
+        return Err("Název profilu nebo frontmatter pole není platný.".into());
+    }
+    let goal_hours = ui
+        .get_settings_daily_goal()
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && (0.0..=24.0).contains(value))
+        .ok_or_else(|| "Denní cíl musí být číslo od 0 do 24 hodin.".to_owned())?;
+    let refresh = ui
+        .get_settings_auto_refresh()
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value <= 120)
+        .ok_or_else(|| "Automatické obnovení musí být 0 až 120 minut.".to_owned())?;
+    let notification_interval = ui
+        .get_settings_notification_interval()
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value <= 1_440)
+        .ok_or_else(|| "Interval upozornění musí být 0 až 1440 minut.".to_owned())?;
+    let time_format = ui.get_settings_time_format().trim().to_owned();
+    if time_format.is_empty() || time_format.len() > 40 {
+        return Err("Formát času nesmí být prázdný.".into());
+    }
+
+    config.nick = (!nick.is_empty()).then_some(nick);
+    config.frontmatter_key = frontmatter;
+    config.time_estimate_key = estimate_key;
+    config.time_format = time_format;
+    config.language = ui.get_settings_language().trim().to_owned();
+    config.daily_goal_ms = (goal_hours * 3_600_000.0) as u64;
+    config.auto_refresh_interval = refresh;
+    config.notifications.enabled = ui.get_settings_notifications();
+    config.notifications.interval_minutes = notification_interval;
+    config.timer_limit_alert.enabled = ui.get_settings_limit_enabled();
+    config.timer_limit_alert.sound_enabled = ui.get_settings_limit_sound_enabled();
+    let sound_path = ui.get_settings_limit_sound_path().trim().to_owned();
+    config.timer_limit_alert.sound_path =
+        (!sound_path.is_empty()).then(|| PathBuf::from(sound_path));
+    config.timer_limit_alert.notifications_enabled = ui.get_settings_limit_notification_enabled();
+    config.timer_limit_alert.show_overlay = ui.get_settings_limit_overlay();
+    let custom_message = ui.get_settings_limit_message().trim().to_owned();
+    if custom_message.len() > 500 {
+        return Err("Vlastní zpráva může mít nejvýše 500 znaků.".into());
+    }
+    config.timer_limit_alert.custom_message = custom_message;
+    Ok(())
 }
 
 fn save_all_timers(state: &mut AppState) -> Result<(), String> {
@@ -370,6 +444,81 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        ui.on_move_timer(move |index, offset| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            if !state.move_timer(index as usize, offset as isize) {
+                return;
+            }
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Pořadí časomír nelze uložit: {error}"), true);
+            }
+            refresh_models(&ui, &state);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        let sort_column = Rc::new(Cell::new(-1_i32));
+        let sort_ascending = Rc::new(Cell::new(true));
+        ui.on_sort_timers(move |column| {
+            let Some(ui) = weak.upgrade() else { return };
+            let ascending = if sort_column.get() == column {
+                !sort_ascending.get()
+            } else {
+                true
+            };
+            sort_column.set(column);
+            sort_ascending.set(ascending);
+            let mut state = state.borrow_mut();
+            state.timers.sort_by(|left, right| {
+                let order = match column {
+                    0 => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
+                    1 => left.time_estimate_minutes.cmp(&right.time_estimate_minutes),
+                    2 => left.current_elapsed_ms().cmp(&right.current_elapsed_ms()),
+                    3 => left.is_running().cmp(&right.is_running()),
+                    _ => std::cmp::Ordering::Equal,
+                };
+                if ascending { order } else { order.reverse() }
+            });
+            state.remember_timer_order();
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Seřazení časomír nelze uložit: {error}"), true);
+            }
+            refresh_models(&ui, &state);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        ui.on_save_custom_estimate(move |index, value| {
+            let Some(ui) = weak.upgrade() else { return };
+            let Some(minutes) = value
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|minutes| *minutes <= 10_080)
+            else {
+                set_status(&ui, "Odhad musí být celé číslo od 0 do 10080 minut.", true);
+                return;
+            };
+            ui.invoke_set_timer_estimate(index, minutes as i32);
+            ui.set_custom_estimate_open(false);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
         ui.on_set_timer_view(move |table| {
             let Some(ui) = weak.upgrade() else { return };
             let mut state = state.borrow_mut();
@@ -483,51 +632,29 @@ fn main() -> Result<(), slint::PlatformError> {
 
     {
         let weak = ui.as_weak();
+        ui.on_choose_alert_sound(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let Some(path) = rfd::FileDialog::new()
+                .set_title("Vyberte zvuk upozornění")
+                .add_filter("Zvuk", &["wav", "ogg", "mp3", "flac"])
+                .pick_file()
+            else {
+                return;
+            };
+            ui.set_settings_limit_sound_path(path.to_string_lossy().into_owned().into());
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
         let state = state.clone();
         ui.on_save_settings(move || {
             let Some(ui) = weak.upgrade() else { return };
-            let frontmatter = ui.get_settings_frontmatter().trim().to_owned();
-            let estimate_key = ui.get_settings_estimate_key().trim().to_owned();
-            let nick = ui.get_settings_nick().trim().to_owned();
-            if !valid_key(&frontmatter)
-                || !valid_key(&estimate_key)
-                || (!nick.is_empty() && !valid_key(&nick))
-            {
-                set_status(
-                    &ui,
-                    "Název profilu nebo frontmatter pole není platný.",
-                    true,
-                );
+            let mut state = state.borrow_mut();
+            if let Err(error) = apply_editable_settings(&ui, &mut state.config) {
+                set_status(&ui, error, true);
                 return;
             }
-            let goal_hours = ui
-                .get_settings_daily_goal()
-                .trim()
-                .parse::<f64>()
-                .ok()
-                .filter(|value| value.is_finite() && *value >= 0.0)
-                .unwrap_or(8.0);
-            let refresh = ui
-                .get_settings_auto_refresh()
-                .trim()
-                .parse::<u32>()
-                .unwrap_or(10)
-                .min(120);
-            let mut state = state.borrow_mut();
-            state.config.nick = (!nick.is_empty()).then_some(nick);
-            state.config.frontmatter_key = frontmatter;
-            state.config.time_estimate_key = estimate_key;
-            state.config.time_format = ui.get_settings_time_format().trim().to_owned();
-            state.config.language = ui.get_settings_language().trim().to_owned();
-            state.config.daily_goal_ms = (goal_hours * 3_600_000.0) as u64;
-            state.config.auto_refresh_interval = refresh;
-            state.config.notifications.enabled = ui.get_settings_notifications();
-            state.config.notifications.interval_minutes = ui
-                .get_settings_notification_interval()
-                .trim()
-                .parse::<u32>()
-                .unwrap_or(60)
-                .min(1_440);
             if let Err(error) = state
                 .config
                 .save()
@@ -545,6 +672,47 @@ fn main() -> Result<(), slint::PlatformError> {
                     refresh_models(&ui, &state);
                     set_status(&ui, "Nastavení bylo uloženo.", false);
                     ui.set_settings_open(false);
+                }
+                Err(error) => set_status(&ui, error, true),
+            }
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_complete_onboarding(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            if state.config.vault_path.is_none() {
+                ui.set_onboarding_step(0);
+                set_status(&ui, "Nejdřív vyberte složku poznámek.", true);
+                return;
+            }
+            if ui.get_settings_nick().trim().is_empty() {
+                ui.set_onboarding_step(1);
+                set_status(&ui, "Zadejte název profilu.", true);
+                return;
+            }
+            if let Err(error) = apply_editable_settings(&ui, &mut state.config) {
+                set_status(&ui, error, true);
+                return;
+            }
+            state.config.onboarding_complete = true;
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Nastavení nelze dokončit: {error}"), true);
+                return;
+            }
+            match state.reload() {
+                Ok(count) => {
+                    sync_settings(&ui, &state.config);
+                    refresh_models(&ui, &state);
+                    ui.set_onboarding_visible(false);
+                    set_status(&ui, format!("Hotovo, načteno {count} poznámek."), false);
                 }
                 Err(error) => set_status(&ui, error, true),
             }
@@ -673,6 +841,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let state = state.clone();
         ui.on_choose_folder(move || {
             let Some(ui) = weak.upgrade() else { return };
+            let onboarding = ui.get_onboarding_visible();
             if !state.borrow().timers.is_empty() {
                 set_status(
                     &ui,
@@ -702,7 +871,11 @@ fn main() -> Result<(), slint::PlatformError> {
                     Err(error) => set_status(&ui, error, true),
                 }
                 sync_settings(&ui, &state.config);
-                ui.set_onboarding_visible(false);
+                if onboarding {
+                    ui.set_onboarding_step(1);
+                } else {
+                    ui.set_onboarding_visible(false);
+                }
             }
             refresh_models(&ui, &state.borrow());
         });
@@ -897,6 +1070,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 note_estimate,
                 color,
             ));
+            state.remember_timer_order();
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Pořadí časomír nelze uložit: {error}"), true);
+            }
             state.checkpoint_timers();
             set_status(&ui, "Časomíra je připravená.", false);
             refresh_models(&ui, &state);
@@ -1018,7 +1199,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let mut expiration_frame = 0_u8;
         let mut alerted = std::collections::HashSet::new();
         timer_tick.start(TimerMode::Repeated, Duration::from_millis(50), move || {
-            let Some(_ui) = weak.upgrade() else { return };
+            let Some(ui) = weak.upgrade() else { return };
             let state = state.borrow();
             let columns = state.layout_columns();
             let mut last_grid_row = None;
@@ -1040,11 +1221,36 @@ fn main() -> Result<(), slint::PlatformError> {
                     let expired = timer.time_estimate_minutes.is_some_and(|minutes| {
                         timer.current_elapsed_ms() >= minutes.saturating_mul(60_000)
                     });
-                    if expired && alerted.insert(timer.note_path.clone()) {
-                        show_notification(
-                            "Časový limit dosažen",
-                            &format!("Odhad pro „{}“ byl vyčerpán.", timer.name),
-                        );
+                    if claim_expiration_once(
+                        &mut alerted,
+                        &timer.note_path,
+                        state.config.timer_limit_alert.enabled,
+                        expired,
+                    ) {
+                        let title = "Časový limit dosažen";
+                        let message = if state.config.timer_limit_alert.custom_message.is_empty() {
+                            format!("Odhad pro „{}“ byl vyčerpán.", timer.name)
+                        } else {
+                            state
+                                .config
+                                .timer_limit_alert
+                                .custom_message
+                                .replace("{{name}}", &timer.name)
+                        };
+                        if state.config.timer_limit_alert.notifications_enabled {
+                            show_notification(title, &message);
+                        }
+                        if state.config.timer_limit_alert.show_overlay {
+                            ui.set_expiration_overlay_title(title.into());
+                            ui.set_expiration_overlay_message(message.clone().into());
+                            ui.set_expiration_overlay_open(true);
+                        }
+                        if state.config.timer_limit_alert.sound_enabled
+                            && let Some(path) = state.config.timer_limit_alert.sound_path.as_deref()
+                            && let Err(error) = play_sound(path)
+                        {
+                            eprintln!("alert sound failed: {error}");
+                        }
                     }
                 }
             }

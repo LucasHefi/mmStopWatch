@@ -4,14 +4,14 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 
 | Area | Original behaviour | Native status | Acceptance check |
 | --- | --- | --- | --- |
-| Main shell | Timer workspace left, 240–400 px note sidebar right, mobile drawer | Partial | 900×600 and 1280×800 screenshots match hierarchy, spacing and colours |
+| Main shell | Timer workspace left, 240–400 px note sidebar right, mobile drawer | Complete (core) | 900×600 and 1280×800 screenshots match hierarchy, spacing and colours |
 | Background | Dark zinc canvas, subtle moving beams/dots and card glow | In progress | Animation remains smooth with software renderer and no growing allocations |
 | Note index | Recursive Markdown scan, search, preview, parse errors, tags | Partial | Same vault produces the same visible notes and totals |
 | Note list | Virtual rows, pinning, edit, preview, Obsidian open, active state | Complete (core) | Every row action works and a large vault keeps stable memory |
 | New note | Safe path validation, collision handling, initial time and tags | Complete | New Markdown is compatible with the existing app |
 | Timers | Multiple independent monotonic timers, start/pause/discard/save | Complete (core) | Timer drift and duplicate-save tests pass |
-| Timer cards | Colour/glow, hundredths, presets, custom estimate, progress, expiry, responsive 1–4 column layouts | In progress (responsive grid complete) | Running card visually matches, wide layouts form the requested grid, and narrow windows fall back without clipping |
-| Timer table | Sortable table mode and persisted order | Partial | Mode/order survive restart and match card data |
+| Timer cards | Colour/glow, hundredths, presets, custom estimate, progress, expiry, responsive 1–4 column layouts | Complete (core) | Running card visually matches, wide layouts form the requested grid, and narrow windows fall back without clipping |
+| Timer table | Sortable table mode and persisted order | Complete | Mode/order survive restart and match card data |
 | Recovery | Checkpoint active timers and restore paused after restart | Complete (core) | Crash/restart scenario restores elapsed value |
 | Close guard | Save all, discard all, cancel close | Complete | Active timers cannot be lost accidentally |
 | Markdown writes | Atomic frontmatter update preserving body and unrelated fields | Complete (core) | Existing storage compatibility tests pass |
@@ -19,10 +19,10 @@ This file is the acceptance checklist for replacing the React/Tauri shell. A fea
 | Statistics | Overview, all days, breakdown, trends and correlations | Partial (overview, history, calendar, day/hour trends and core insights) | Native totals equal TypeScript fixtures |
 | Goals/calendar | Daily target, streak, consistency and heat calendar | Complete (core) | Goal and date-boundary fixtures match |
 | Reports | Weekly/monthly Markdown reports and export workflow | Complete (core) | Golden report output matches |
-| Settings | General, frontmatter, alerts, goals and vault profiles | Partial | All settings persist in the existing config format |
+| Settings | General, frontmatter, alerts, goals and vault profiles | Complete (core) | All settings persist in the existing config format |
 | Profiles | Detect/create/switch/delete vault profiles | Complete (core) | Existing `.mmST-{nick}` profiles open without migration loss |
-| Onboarding | Nick, folder, frontmatter and configuration steps | Partial | Fresh install reaches a working vault without manual files |
-| Notifications | Periodic reminder, estimate limit alert, overlay and custom sound | Partial | Enabled/disabled paths and one-shot expiry are tested |
+| Onboarding | Nick, folder, frontmatter and configuration steps | Complete (core) | Fresh install reaches a working vault without manual files |
+| Notifications | Periodic reminder, estimate limit alert, overlay and custom sound | Complete (core) | Enabled/disabled paths and one-shot expiry are tested |
 | Languages | Existing 15 language catalogues | Missing | Runtime language switch covers every native screen |
 | Updater/integration | Update check/install, native notifications, file/URL opening | Missing | Platform boundary checks pass on packaged build |
 | Performance | Smooth foreground ticks, low idle work, less than 100 MB release RSS | Partial | Idle, active timer and large-vault scenarios stay below 100 MB |

@@ -166,6 +166,8 @@ component TimerCard inherits Rectangle {
     callback save;
     callback discard;
     callback set-estimate(int);
+    callback custom-estimate;
+    callback move(int);
     height: 191px;
     border-radius: 15px;
     background: #111113f2;
@@ -214,6 +216,8 @@ component TimerCard inherits Rectangle {
                 font-weight: 700;
                 vertical-alignment: center;
             }
+            SmallButton { width: 25px; label: "‹"; clicked => root.move(-1); }
+            SmallButton { width: 25px; label: "›"; clicked => root.move(1); }
             SmallButton { width: 30px; label: "×"; danger: true; clicked => root.discard(); }
         }
 
@@ -227,7 +231,7 @@ component TimerCard inherits Rectangle {
             EstimatePreset { width: 29px; minutes: 45; selected: root.timer.estimate-minutes == 45; clicked => root.set-estimate(45); }
             EstimatePreset { width: 29px; minutes: 60; selected: root.timer.estimate-minutes == 60; clicked => root.set-estimate(60); }
             EstimatePreset { width: 31px; minutes: 90; selected: root.timer.estimate-minutes == 90; clicked => root.set-estimate(90); }
-            EstimatePreset { width: 34px; minutes: 120; selected: root.timer.estimate-minutes == 120; clicked => root.set-estimate(120); }
+            SmallButton { width: 34px; height: 25px; label: "…"; active: root.timer.estimate-minutes > 0 && root.timer.estimate-minutes != 15 && root.timer.estimate-minutes != 25 && root.timer.estimate-minutes != 30 && root.timer.estimate-minutes != 45 && root.timer.estimate-minutes != 60 && root.timer.estimate-minutes != 90; clicked => root.custom-estimate(); }
             Rectangle { horizontal-stretch: 1; }
         }
 
@@ -300,6 +304,7 @@ component TimerTableRow inherits Rectangle {
     callback toggle;
     callback save;
     callback discard;
+    callback move(int);
     height: 66px;
     border-radius: 10px;
     background: #18181bd9;
@@ -313,6 +318,8 @@ component TimerTableRow inherits Rectangle {
         Text { horizontal-stretch: 1; text: root.timer.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; }
         Text { width: 72px; text: root.timer.estimate-minutes > 0 ? root.timer.estimate-minutes + " min" : "—"; color: #71717a; font-size: 10px; vertical-alignment: center; }
         Text { width: 136px; text: root.timer.elapsed; color: #fafafa; font-size: 17px; font-weight: 700; vertical-alignment: center; }
+        SmallButton { width: 26px; label: "↑"; clicked => root.move(-1); }
+        SmallButton { width: 26px; label: "↓"; clicked => root.move(1); }
         RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
         RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
         SmallButton { width: 30px; label: "×"; danger: true; clicked => root.discard(); }
@@ -321,6 +328,7 @@ component TimerTableRow inherits Rectangle {
 
 component OverlayLayer inherits Rectangle {
     in-out property <bool> onboarding-visible;
+    in-out property <int> onboarding-step;
     in-out property <bool> settings-open;
     in-out property <int> settings-tab;
     in-out property <string> settings-nick;
@@ -332,6 +340,12 @@ component OverlayLayer inherits Rectangle {
     in-out property <string> settings-auto-refresh;
     in-out property <bool> settings-notifications;
     in-out property <string> settings-notification-interval;
+    in-out property <bool> settings-limit-enabled;
+    in-out property <bool> settings-limit-sound-enabled;
+    in-out property <string> settings-limit-sound-path;
+    in-out property <bool> settings-limit-notification-enabled;
+    in-out property <bool> settings-limit-overlay;
+    in-out property <string> settings-limit-message;
     in-out property <bool> new-note-open;
     in-out property <string> new-note-filename;
     in-out property <string> new-note-time;
@@ -345,6 +359,12 @@ component OverlayLayer inherits Rectangle {
     in-out property <string> edit-note-title;
     in-out property <string> edit-note-path;
     in-out property <string> edit-note-time;
+    in-out property <bool> custom-estimate-open;
+    in-out property <int> custom-estimate-index;
+    in-out property <string> custom-estimate-value;
+    in-out property <bool> expiration-overlay-open;
+    in-out property <string> expiration-overlay-title;
+    in-out property <string> expiration-overlay-message;
     in property <string> vault-path;
     in property <[ProfileRow]> profiles;
     callback choose-folder;
@@ -353,9 +373,12 @@ component OverlayLayer inherits Rectangle {
     callback close-save-all;
     callback close-discard-all;
     callback save-note-edit;
+    callback save-custom-estimate(int, string);
     callback switch-profile(int);
     callback create-profile;
     callback delete-profile(int);
+    callback complete-onboarding;
+    callback choose-alert-sound;
     background: transparent;
 
     if root.settings-open : Rectangle {
@@ -424,17 +447,32 @@ component OverlayLayer inherits Rectangle {
 
                     if root.settings-tab == 2 : VerticalLayout {
                         padding: 16px;
-                        spacing: 12px;
-                        Text { text: "Pravidelné připomenutí"; color: #e4e4e7; font-size: 12px; font-weight: 600; }
-                        Text { text: "Připomenutí respektuje interval automatické kontroly a neběží, když není aktivní žádný timer."; color: #71717a; font-size: 10px; wrap: word-wrap; }
-                        SmallButton {
-                            width: 150px;
-                            label: root.settings-notifications ? "Zapnuto" : "Vypnuto";
-                            active: root.settings-notifications;
-                            clicked => { root.settings-notifications = !root.settings-notifications; }
+                        spacing: 8px;
+                        Text { text: "Upozornění na vypršení limitu"; color: #e4e4e7; font-size: 12px; font-weight: 600; }
+                        HorizontalLayout {
+                            height: 29px;
+                            spacing: 6px;
+                            SmallButton { horizontal-stretch: 1; label: root.settings-limit-enabled ? "Limit zapnut" : "Limit vypnut"; active: root.settings-limit-enabled; clicked => { root.settings-limit-enabled = !root.settings-limit-enabled; } }
+                            SmallButton { horizontal-stretch: 1; label: root.settings-limit-notification-enabled ? "Systémová notifikace" : "Bez notifikace"; active: root.settings-limit-notification-enabled; enabled: root.settings-limit-enabled; clicked => { root.settings-limit-notification-enabled = !root.settings-limit-notification-enabled; } }
+                            SmallButton { horizontal-stretch: 1; label: root.settings-limit-overlay ? "Overlay zapnut" : "Bez overlaye"; active: root.settings-limit-overlay; enabled: root.settings-limit-enabled; clicked => { root.settings-limit-overlay = !root.settings-limit-overlay; } }
                         }
-                        Text { text: "Interval připomenutí v minutách (0 = nikdy)"; color: #a1a1aa; font-size: 10px; }
-                        LineEdit { text <=> root.settings-notification-interval; placeholder-text: "60"; }
+                        HorizontalLayout {
+                            height: 29px;
+                            spacing: 6px;
+                            SmallButton { width: 130px; label: root.settings-limit-sound-enabled ? "Zvuk zapnut" : "Zvuk vypnut"; active: root.settings-limit-sound-enabled; enabled: root.settings-limit-enabled; clicked => { root.settings-limit-sound-enabled = !root.settings-limit-sound-enabled; } }
+                            SmallButton { width: 120px; label: "Vybrat zvuk…"; enabled: root.settings-limit-enabled && root.settings-limit-sound-enabled; clicked => root.choose-alert-sound(); }
+                            Text { text: root.settings-limit-sound-path == "" ? "Není vybraný zvuk" : root.settings-limit-sound-path; color: #52525b; font-size: 9px; overflow: elide; vertical-alignment: center; }
+                        }
+                        Text { text: "Vlastní zpráva při vypršení (prázdná = výchozí)"; color: #a1a1aa; font-size: 10px; }
+                        LineEdit { text <=> root.settings-limit-message; placeholder-text: "Časový odhad byl vyčerpán"; }
+                        Rectangle { height: 1px; background: #ffffff0d; }
+                        Text { text: "Pravidelné připomenutí při běžícím timeru"; color: #e4e4e7; font-size: 11px; font-weight: 600; }
+                        HorizontalLayout {
+                            height: 30px;
+                            spacing: 8px;
+                            SmallButton { width: 120px; label: root.settings-notifications ? "Zapnuto" : "Vypnuto"; active: root.settings-notifications; clicked => { root.settings-notifications = !root.settings-notifications; } }
+                            LineEdit { text <=> root.settings-notification-interval; placeholder-text: "minuty (0–1440)"; }
+                        }
                         Rectangle { vertical-stretch: 1; }
                     }
 
@@ -607,6 +645,61 @@ component OverlayLayer inherits Rectangle {
         }
     }
 
+    if root.custom-estimate-open : Rectangle {
+        background: #000000b8;
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(parent.width - 40px, 380px);
+            height: 230px;
+            border-radius: 16px;
+            background: #18181bf8;
+            border-width: 1px;
+            border-color: #ffffff12;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                HorizontalLayout {
+                    height: 30px;
+                    Text { text: "Vlastní časový odhad"; color: #fafafa; font-size: 16px; font-weight: 700; }
+                    SmallButton { width: 30px; label: "×"; clicked => { root.custom-estimate-open = false; } }
+                }
+                Text { text: "Počet minut (0 odstraní odhad)"; color: #a1a1aa; font-size: 10px; }
+                LineEdit { text <=> root.custom-estimate-value; placeholder-text: "120"; }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    height: 34px;
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallButton { width: 100px; label: "Zrušit"; clicked => { root.custom-estimate-open = false; } }
+                    SmallButton { width: 110px; label: "Uložit"; active: true; clicked => root.save-custom-estimate(root.custom-estimate-index, root.custom-estimate-value); }
+                }
+            }
+        }
+    }
+
+    if root.expiration-overlay-open : Rectangle {
+        background: #000000c4;
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(parent.width - 40px, 440px);
+            height: 250px;
+            border-radius: 18px;
+            background: #211316fa;
+            border-width: 1px;
+            border-color: #fb718566;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+                Text { text: "!"; color: #fb7185; font-size: 30px; font-weight: 700; horizontal-alignment: center; }
+                Text { text: root.expiration-overlay-title; color: #fafafa; font-size: 18px; font-weight: 700; horizontal-alignment: center; }
+                Text { text: root.expiration-overlay-message; color: #d4d4d8; font-size: 11px; wrap: word-wrap; horizontal-alignment: center; }
+                Rectangle { vertical-stretch: 1; }
+                SmallButton { height: 38px; label: "Rozumím"; active: true; clicked => { root.expiration-overlay-open = false; } }
+            }
+        }
+    }
+
     if root.onboarding-visible : Rectangle {
         background: #09090bf4;
         AmbientOrb {
@@ -620,7 +713,7 @@ component OverlayLayer inherits Rectangle {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             width: Math.min(parent.width - 40px, 480px);
-            height: 310px;
+            height: 390px;
             border-radius: 18px;
             background: #18181bf8;
             border-width: 1px;
@@ -630,11 +723,45 @@ component OverlayLayer inherits Rectangle {
                 spacing: 14px;
                 Text { text: "mmStopWatch"; color: #fafafa; font-size: 25px; font-weight: 700; horizontal-alignment: center; }
                 Text { text: "Lehká nativní časomíra pro Markdown a Obsidian"; color: #a1a1aa; font-size: 11px; horizontal-alignment: center; }
+                Text { text: "KROK " + (root.onboarding-step + 1) + " ZE 3"; color: #34d399; font-size: 9px; font-weight: 700; horizontal-alignment: center; }
                 Rectangle { height: 1px; background: #ffffff0d; }
-                Text { text: "Vyberte kořenovou složku s poznámkami. Pokud obsahuje existující .mmST profil, nastavení i historie se načtou automaticky."; color: #71717a; font-size: 11px; wrap: word-wrap; horizontal-alignment: center; }
-                Rectangle { vertical-stretch: 1; }
-                SmallButton { height: 42px; label: "Vybrat složku poznámek"; active: true; clicked => root.choose-folder(); }
-                Text { text: "Data zůstávají pouze ve vašem vaultu."; color: #52525b; font-size: 9px; horizontal-alignment: center; }
+                if root.onboarding-step == 0 : VerticalLayout {
+                    spacing: 14px;
+                    Text { text: "Vyberte kořenovou složku s poznámkami. Existující .mmST profil, nastavení i historie se načtou automaticky."; color: #71717a; font-size: 11px; wrap: word-wrap; horizontal-alignment: center; }
+                    Rectangle { vertical-stretch: 1; }
+                    SmallButton { height: 42px; label: "Vybrat složku poznámek"; active: true; clicked => root.choose-folder(); }
+                    Text { text: "Data zůstávají pouze ve vašem vaultu."; color: #52525b; font-size: 9px; horizontal-alignment: center; }
+                }
+                if root.onboarding-step == 1 : VerticalLayout {
+                    spacing: 10px;
+                    Text { text: "Název profilu"; color: #a1a1aa; font-size: 10px; }
+                    LineEdit { text <=> root.settings-nick; placeholder-text: "moje-prace"; }
+                    Text { text: "Profil odděluje nastavení a historii, ale poznámky zůstávají společné ve vaultu."; color: #71717a; font-size: 10px; wrap: word-wrap; }
+                    Text { text: root.vault-path; color: #52525b; font-size: 9px; overflow: elide; }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        height: 36px;
+                        SmallButton { width: 90px; label: "Zpět"; clicked => { root.onboarding-step = 0; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        SmallButton { width: 120px; label: "Pokračovat"; active: true; clicked => { root.onboarding-step = 2; } }
+                    }
+                }
+                if root.onboarding-step == 2 : VerticalLayout {
+                    spacing: 8px;
+                    Text { text: "Pole s odpracovaným časem"; color: #a1a1aa; font-size: 10px; }
+                    LineEdit { text <=> root.settings-frontmatter; placeholder-text: "Timework"; }
+                    Text { text: "Pole s časovým odhadem"; color: #a1a1aa; font-size: 10px; }
+                    LineEdit { text <=> root.settings-estimate-key; placeholder-text: "timeEstimate"; }
+                    Text { text: "Denní cíl v hodinách"; color: #a1a1aa; font-size: 10px; }
+                    LineEdit { text <=> root.settings-daily-goal; placeholder-text: "8.0"; }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        height: 36px;
+                        SmallButton { width: 90px; label: "Zpět"; clicked => { root.onboarding-step = 1; } }
+                        Rectangle { horizontal-stretch: 1; }
+                        SmallButton { width: 150px; label: "Dokončit nastavení"; active: true; clicked => root.complete-onboarding(); }
+                    }
+                }
             }
         }
     }
@@ -723,7 +850,7 @@ export component AppWindow inherits Window {
     title: "mmStopWatch";
     preferred-width: 900px;
     preferred-height: 600px;
-    min-width: 760px;
+    min-width: 360px;
     min-height: 500px;
     background: #09090b;
 
@@ -737,9 +864,12 @@ export component AppWindow inherits Window {
     in-out property <bool> table-view: false;
     in-out property <int> layout-columns: 1;
     property <length> viewport-width: 900px;
+    property <bool> compact: root.viewport-width < 760px;
+    in-out property <bool> sidebar-open: false;
     in property <int> note-count: 0;
     in property <string> total-duration: "00:00:00";
     in-out property <bool> onboarding-visible: false;
+    in-out property <int> onboarding-step: 0;
     in-out property <bool> settings-open: false;
     in-out property <int> settings-tab: 0;
     in-out property <string> settings-nick: "";
@@ -751,6 +881,12 @@ export component AppWindow inherits Window {
     in-out property <string> settings-auto-refresh: "10";
     in-out property <bool> settings-notifications: true;
     in-out property <string> settings-notification-interval: "60";
+    in-out property <bool> settings-limit-enabled: true;
+    in-out property <bool> settings-limit-sound-enabled: false;
+    in-out property <string> settings-limit-sound-path: "";
+    in-out property <bool> settings-limit-notification-enabled: true;
+    in-out property <bool> settings-limit-overlay: true;
+    in-out property <string> settings-limit-message: "";
     in-out property <bool> new-note-open: false;
     in-out property <string> new-note-filename: "";
     in-out property <string> new-note-time: "";
@@ -764,6 +900,12 @@ export component AppWindow inherits Window {
     in-out property <string> edit-note-title: "";
     in-out property <string> edit-note-path: "";
     in-out property <string> edit-note-time: "";
+    in-out property <bool> custom-estimate-open: false;
+    in-out property <int> custom-estimate-index: -1;
+    in-out property <string> custom-estimate-value: "";
+    in-out property <bool> expiration-overlay-open: false;
+    in-out property <string> expiration-overlay-title: "";
+    in-out property <string> expiration-overlay-message: "";
     in-out property <bool> stats-open: false;
     in property <string> stats-total: "00:00:00";
     in property <string> stats-today: "00:00:00";
@@ -812,6 +954,9 @@ export component AppWindow inherits Window {
     callback save-timer(int);
     callback discard-timer(int);
     callback set-timer-estimate(int, int);
+    callback save-custom-estimate(int, string);
+    callback move-timer(int, int);
+    callback sort-timers(int);
     callback set-timer-view(bool);
     callback set-layout-columns(int);
     callback toggle-pin(int);
@@ -830,6 +975,8 @@ export component AppWindow inherits Window {
     callback switch-profile(int);
     callback create-profile;
     callback delete-profile(int);
+    callback complete-onboarding;
+    callback choose-alert-sound;
 
     for row in 10 : Rectangle {
         background: transparent;
@@ -862,7 +1009,7 @@ export component AppWindow inherits Window {
     HorizontalLayout {
         spacing: 0px;
 
-        Rectangle {
+        if !root.compact || !root.sidebar-open : Rectangle {
             horizontal-stretch: 1;
             background: #09090bd9;
 
@@ -874,8 +1021,9 @@ export component AppWindow inherits Window {
                     height: 30px;
                     spacing: 5px;
                     Rectangle { horizontal-stretch: 1; }
+                    if root.compact : SmallButton { width: 94px; label: "Poznámky " + root.note-count; active: root.sidebar-open; clicked => { root.sidebar-open = true; } }
                     SmallButton { width: 31px; label: "☷"; active: !root.table-view; clicked => root.set-timer-view(false); }
-                    SmallButton { width: 31px; label: "▦"; active: root.table-view; clicked => root.set-timer-view(true); }
+                    SmallButton { width: 31px; label: "▦"; enabled: !root.compact; active: root.table-view && !root.compact; clicked => root.set-timer-view(true); }
                     SmallButton { width: 31px; label: "1"; active: root.layout-columns == 1 || !root.selected-layout-feasible; clicked => root.set-layout-columns(1); }
                     SmallButton { width: 31px; label: "2"; enabled: root.viewport-width >= 1086px; active: root.layout-columns == 2 && root.selected-layout-feasible; clicked => root.set-layout-columns(2); }
                     SmallButton { width: 31px; label: "3"; enabled: root.viewport-width >= 1461px; active: root.layout-columns == 3 && root.selected-layout-feasible; clicked => root.set-layout-columns(3); }
@@ -893,7 +1041,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.timer-count > 0 && !root.table-view && (root.layout-columns == 1 || !root.selected-layout-feasible) : ListView {
+                if root.timer-count > 0 && (!root.table-view || root.compact) && (root.layout-columns == 1 || !root.selected-layout-feasible || root.compact) : ListView {
                     for timer[index] in root.timers : TimerCard {
                         timer: timer;
                         row-index: index;
@@ -901,30 +1049,44 @@ export component AppWindow inherits Window {
                         save => root.save-timer(index);
                         discard => root.discard-timer(index);
                         set-estimate(minutes) => root.set-timer-estimate(index, minutes);
+                        custom-estimate => { root.custom-estimate-index = index; root.custom-estimate-value = timer.estimate-minutes > 0 ? timer.estimate-minutes : ""; root.custom-estimate-open = true; }
+                        move(offset) => root.move-timer(index, offset);
                     }
                 }
 
-                if root.timer-count > 0 && !root.table-view && root.layout-columns > 1 && root.selected-layout-feasible : ListView {
+                if root.timer-count > 0 && !root.table-view && !root.compact && root.layout-columns > 1 && root.selected-layout-feasible : ListView {
                     for group[row-index] in root.timer-grid : HorizontalLayout {
                         height: 191px;
                         spacing: 7px;
-                        if group.has-a : TimerCard { timer: group.a; toggle => root.toggle-timer(row-index * root.layout-columns); save => root.save-timer(row-index * root.layout-columns); discard => root.discard-timer(row-index * root.layout-columns); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns, minutes); }
+                        if group.has-a : TimerCard { timer: group.a; row-index: row-index * root.layout-columns; toggle => root.toggle-timer(row-index * root.layout-columns); save => root.save-timer(row-index * root.layout-columns); discard => root.discard-timer(row-index * root.layout-columns); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns; root.custom-estimate-value = group.a.estimate-minutes > 0 ? group.a.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns, offset); }
                         if !group.has-a : Rectangle { background: transparent; }
-                        if group.has-b : TimerCard { timer: group.b; toggle => root.toggle-timer(row-index * root.layout-columns + 1); save => root.save-timer(row-index * root.layout-columns + 1); discard => root.discard-timer(row-index * root.layout-columns + 1); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 1, minutes); }
+                        if group.has-b : TimerCard { timer: group.b; row-index: row-index * root.layout-columns + 1; toggle => root.toggle-timer(row-index * root.layout-columns + 1); save => root.save-timer(row-index * root.layout-columns + 1); discard => root.discard-timer(row-index * root.layout-columns + 1); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 1, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns + 1; root.custom-estimate-value = group.b.estimate-minutes > 0 ? group.b.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns + 1, offset); }
                         if !group.has-b : Rectangle { background: transparent; }
-                        if root.layout-columns > 2 && group.has-c : TimerCard { timer: group.c; toggle => root.toggle-timer(row-index * root.layout-columns + 2); save => root.save-timer(row-index * root.layout-columns + 2); discard => root.discard-timer(row-index * root.layout-columns + 2); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 2, minutes); }
+                        if root.layout-columns > 2 && group.has-c : TimerCard { timer: group.c; row-index: row-index * root.layout-columns + 2; toggle => root.toggle-timer(row-index * root.layout-columns + 2); save => root.save-timer(row-index * root.layout-columns + 2); discard => root.discard-timer(row-index * root.layout-columns + 2); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 2, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns + 2; root.custom-estimate-value = group.c.estimate-minutes > 0 ? group.c.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns + 2, offset); }
                         if root.layout-columns > 2 && !group.has-c : Rectangle { background: transparent; }
-                        if root.layout-columns > 3 && group.has-d : TimerCard { timer: group.d; toggle => root.toggle-timer(row-index * root.layout-columns + 3); save => root.save-timer(row-index * root.layout-columns + 3); discard => root.discard-timer(row-index * root.layout-columns + 3); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 3, minutes); }
+                        if root.layout-columns > 3 && group.has-d : TimerCard { timer: group.d; row-index: row-index * root.layout-columns + 3; toggle => root.toggle-timer(row-index * root.layout-columns + 3); save => root.save-timer(row-index * root.layout-columns + 3); discard => root.discard-timer(row-index * root.layout-columns + 3); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 3, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns + 3; root.custom-estimate-value = group.d.estimate-minutes > 0 ? group.d.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns + 3, offset); }
                         if root.layout-columns > 3 && !group.has-d : Rectangle { background: transparent; }
                     }
                 }
 
-                if root.timer-count > 0 && root.table-view : ListView {
-                    for timer[index] in root.timers : TimerTableRow {
-                        timer: timer;
-                        toggle => root.toggle-timer(index);
-                        save => root.save-timer(index);
-                        discard => root.discard-timer(index);
+                if root.timer-count > 0 && root.table-view && !root.compact : VerticalLayout {
+                    spacing: 5px;
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 5px;
+                        SmallButton { horizontal-stretch: 1; label: "Název ↕"; clicked => root.sort-timers(0); }
+                        SmallButton { width: 100px; label: "Odhad ↕"; clicked => root.sort-timers(1); }
+                        SmallButton { width: 130px; label: "Čas ↕"; clicked => root.sort-timers(2); }
+                        SmallButton { width: 90px; label: "Stav ↕"; clicked => root.sort-timers(3); }
+                    }
+                    ListView {
+                        for timer[index] in root.timers : TimerTableRow {
+                            timer: timer;
+                            toggle => root.toggle-timer(index);
+                            save => root.save-timer(index);
+                            discard => root.discard-timer(index);
+                            move(offset) => root.move-timer(index, offset);
+                        }
                     }
                 }
 
@@ -938,8 +1100,10 @@ export component AppWindow inherits Window {
             }
         }
 
-        Rectangle {
-            width: 320px;
+        if !root.compact || root.sidebar-open : Rectangle {
+            horizontal-stretch: root.compact ? 1 : 0;
+            min-width: root.compact ? 0px : 320px;
+            max-width: root.compact ? 10000px : 320px;
             background: #0c0c0fee;
             border-width: 1px;
             border-color: #ffffff0d;
@@ -976,6 +1140,7 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     height: 31px;
                     spacing: 5px;
+                    if root.compact : SmallButton { width: 70px; label: "‹ Timery"; clicked => { root.sidebar-open = false; } }
                     SmallButton { horizontal-stretch: 1; label: "+ Nová"; clicked => { root.new-note-open = true; } }
                     SmallButton { width: 34px; label: "↻"; clicked => root.refresh(); }
                     SmallButton { width: 34px; label: "▥"; clicked => root.open-stats(); }
@@ -1229,6 +1394,7 @@ export component AppWindow inherits Window {
 
     OverlayLayer {
         onboarding-visible <=> root.onboarding-visible;
+        onboarding-step <=> root.onboarding-step;
         settings-open <=> root.settings-open;
         settings-tab <=> root.settings-tab;
         settings-nick <=> root.settings-nick;
@@ -1240,6 +1406,12 @@ export component AppWindow inherits Window {
         settings-auto-refresh <=> root.settings-auto-refresh;
         settings-notifications <=> root.settings-notifications;
         settings-notification-interval <=> root.settings-notification-interval;
+        settings-limit-enabled <=> root.settings-limit-enabled;
+        settings-limit-sound-enabled <=> root.settings-limit-sound-enabled;
+        settings-limit-sound-path <=> root.settings-limit-sound-path;
+        settings-limit-notification-enabled <=> root.settings-limit-notification-enabled;
+        settings-limit-overlay <=> root.settings-limit-overlay;
+        settings-limit-message <=> root.settings-limit-message;
         new-note-open <=> root.new-note-open;
         new-note-filename <=> root.new-note-filename;
         new-note-time <=> root.new-note-time;
@@ -1253,6 +1425,12 @@ export component AppWindow inherits Window {
         edit-note-title <=> root.edit-note-title;
         edit-note-path <=> root.edit-note-path;
         edit-note-time <=> root.edit-note-time;
+        custom-estimate-open <=> root.custom-estimate-open;
+        custom-estimate-index <=> root.custom-estimate-index;
+        custom-estimate-value <=> root.custom-estimate-value;
+        expiration-overlay-open <=> root.expiration-overlay-open;
+        expiration-overlay-title <=> root.expiration-overlay-title;
+        expiration-overlay-message <=> root.expiration-overlay-message;
         vault-path: root.vault-path;
         profiles: root.profiles;
         choose-folder => root.choose-folder();
@@ -1261,8 +1439,11 @@ export component AppWindow inherits Window {
         close-save-all => root.close-save-all();
         close-discard-all => root.close-discard-all();
         save-note-edit => root.save-note-edit();
+        save-custom-estimate(index, value) => root.save-custom-estimate(index, value);
         switch-profile(index) => root.switch-profile(index);
         create-profile => root.create-profile();
         delete-profile(index) => root.delete-profile(index);
+        complete-onboarding => root.complete-onboarding();
+        choose-alert-sound => root.choose-alert-sound();
     }
 }

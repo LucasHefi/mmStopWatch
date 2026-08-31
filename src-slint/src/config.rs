@@ -27,6 +27,30 @@ pub struct Notifications {
     pub interval_minutes: u32,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TimerLimitAlert {
+    pub enabled: bool,
+    pub sound_enabled: bool,
+    pub sound_path: Option<PathBuf>,
+    pub notifications_enabled: bool,
+    pub custom_message: String,
+    pub show_overlay: bool,
+}
+
+impl Default for TimerLimitAlert {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sound_enabled: false,
+            sound_path: None,
+            notifications_enabled: true,
+            custom_message: String::new(),
+            show_overlay: true,
+        }
+    }
+}
+
 impl Default for Notifications {
     fn default() -> Self {
         Self {
@@ -67,6 +91,7 @@ pub struct AppConfig {
     pub timer_view_mode: String,
     pub timer_layout: TimerLayout,
     pub notifications: Notifications,
+    pub timer_limit_alert: TimerLimitAlert,
 }
 
 impl Default for AppConfig {
@@ -87,6 +112,7 @@ impl Default for AppConfig {
             timer_view_mode: "cards".into(),
             timer_layout: TimerLayout::default(),
             notifications: Notifications::default(),
+            timer_limit_alert: TimerLimitAlert::default(),
         }
     }
 }
