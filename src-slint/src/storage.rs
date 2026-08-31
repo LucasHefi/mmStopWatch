@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::{self, Write},
     path::{Component, Path, PathBuf},
@@ -24,115 +24,213 @@ pub struct NoteScan {
     pub warnings: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileSignature {
+    len: u64,
+    modified_ns: u128,
+}
+
+#[derive(Clone, Debug)]
+struct CachedNote {
+    signature: FileSignature,
+    note: Note,
+    warnings: Vec<String>,
+}
+
+/// Incremental vault index. Directory walking and cheap metadata checks still
+/// happen on refresh, but unchanged Markdown files are not read or parsed
+/// again. This keeps refresh latency predictable for vaults with thousands of
+/// notes without introducing a database or another file in the user's vault.
+#[derive(Debug, Default)]
+pub struct NoteIndex {
+    options_signature: String,
+    entries: HashMap<PathBuf, CachedNote>,
+    cache_hits: usize,
+}
+
+impl NoteIndex {
+    pub fn cache_hits(&self) -> usize {
+        self.cache_hits
+    }
+
+    pub fn scan(
+        &mut self,
+        root: &Path,
+        key: &str,
+        estimate_key: &str,
+        field_keys: &[String],
+    ) -> io::Result<NoteScan> {
+        validate_key(key)?;
+        validate_key(estimate_key)?;
+        for field in field_keys {
+            validate_key(field)?;
+        }
+        if !root.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "vybraná složka neexistuje",
+            ));
+        }
+
+        let options_signature = format!(
+            "{key}\u{1f}{estimate_key}\u{1f}{}",
+            field_keys.join("\u{1e}")
+        );
+        if self.options_signature != options_signature {
+            self.entries.clear();
+            self.options_signature = options_signature;
+        }
+        self.cache_hits = 0;
+
+        let mut notes = Vec::new();
+        let mut warnings = Vec::new();
+        let mut active = HashSet::new();
+        let walker = WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(is_visible_note_entry);
+
+        for entry in walker {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    warnings.push(format!("Nelze projít položku: {error}"));
+                    continue;
+                }
+            };
+            if !entry.file_type().is_file()
+                || !entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+            {
+                continue;
+            }
+
+            let path = entry.path().to_path_buf();
+            active.insert(path.clone());
+            let metadata = match entry.metadata() {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    warnings.push(format!(
+                        "{}: nelze načíst metadata ({error})",
+                        path.display()
+                    ));
+                    continue;
+                }
+            };
+            let signature = FileSignature {
+                len: metadata.len(),
+                modified_ns: metadata
+                    .modified()
+                    .ok()
+                    .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |value| value.as_nanos()),
+            };
+
+            if let Some(cached) = self.entries.get(&path)
+                && cached.signature == signature
+            {
+                self.cache_hits += 1;
+                notes.push(cached.note.clone());
+                warnings.extend(cached.warnings.iter().cloned());
+                continue;
+            }
+
+            match parse_note_file(root, &path, key, estimate_key, field_keys) {
+                Ok((note, note_warnings)) => {
+                    notes.push(note.clone());
+                    warnings.extend(note_warnings.iter().cloned());
+                    self.entries.insert(
+                        path,
+                        CachedNote {
+                            signature,
+                            note,
+                            warnings: note_warnings,
+                        },
+                    );
+                }
+                Err(error) => warnings.push(format!("{}: nelze přečíst ({error})", path.display())),
+            }
+        }
+        self.entries.retain(|path, _| active.contains(path));
+        notes.sort_by_key(|note| note.name.to_lowercase());
+        Ok(NoteScan { notes, warnings })
+    }
+}
+
+#[cfg(test)]
 pub fn scan_notes_detailed(
     root: &Path,
     key: &str,
     estimate_key: &str,
     field_keys: &[String],
 ) -> io::Result<NoteScan> {
-    validate_key(key)?;
-    validate_key(estimate_key)?;
-    for field in field_keys {
-        validate_key(field)?;
-    }
-    if !root.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "vybraná složka neexistuje",
+    NoteIndex::default().scan(root, key, estimate_key, field_keys)
+}
+
+fn parse_note_file(
+    root: &Path,
+    path: &Path,
+    key: &str,
+    estimate_key: &str,
+    field_keys: &[String],
+) -> io::Result<(Note, Vec<String>)> {
+    let content = fs::read_to_string(path)?;
+    let (frontmatter, body) = split_frontmatter(&content);
+    let mut warnings = Vec::new();
+    if (content.starts_with("---\n") || content.starts_with("---\r\n")) && frontmatter.is_none() {
+        warnings.push(format!(
+            "{}: frontmatter nemá ukončovací ---",
+            path.display()
         ));
     }
-
-    let mut notes = Vec::new();
-    let mut warnings = Vec::new();
-    let walker = WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(is_visible_note_entry);
-
-    for entry in walker {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => {
-                warnings.push(format!("Nelze projít položku: {error}"));
-                continue;
-            }
-        };
-        if !entry.file_type().is_file()
-            || !entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
-        {
-            continue;
-        }
-        let content = match fs::read_to_string(entry.path()) {
-            Ok(content) => content,
-            Err(error) => {
-                warnings.push(format!(
-                    "{}: nelze přečíst ({error})",
-                    entry.path().display()
-                ));
-                continue;
-            }
-        };
-        let (frontmatter, body) = split_frontmatter(&content);
-        if (content.starts_with("---\n") || content.starts_with("---\r\n")) && frontmatter.is_none()
-        {
-            warnings.push(format!(
-                "{}: frontmatter nemá ukončovací ---",
-                entry.path().display()
-            ));
-        }
-        let raw_duration = frontmatter.and_then(|yaml| frontmatter_value(yaml, key));
-        let duration_ms = raw_duration.and_then(parse_time_ms).unwrap_or(0);
-        if raw_duration.is_some() && parse_time_ms(raw_duration.unwrap_or_default()).is_none() {
-            warnings.push(format!(
-                "{}: pole {key} nemá platný čas",
-                entry.path().display()
-            ));
-        }
-        let raw_estimate = frontmatter.and_then(|yaml| frontmatter_value(yaml, estimate_key));
-        let time_estimate_minutes = raw_estimate
+    let raw_duration = frontmatter.and_then(|yaml| frontmatter_value(yaml, key));
+    let duration_ms = raw_duration.and_then(parse_time_ms).unwrap_or(0);
+    if raw_duration.is_some() && parse_time_ms(raw_duration.unwrap_or_default()).is_none() {
+        warnings.push(format!("{}: pole {key} nemá platný čas", path.display()));
+    }
+    let raw_estimate = frontmatter.and_then(|yaml| frontmatter_value(yaml, estimate_key));
+    let time_estimate_minutes = raw_estimate
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|minutes| *minutes > 0);
+    if raw_estimate.is_some()
+        && raw_estimate
             .and_then(|value| value.parse::<u64>().ok())
-            .filter(|minutes| *minutes > 0);
-        if raw_estimate.is_some()
-            && raw_estimate
-                .and_then(|value| value.parse::<u64>().ok())
-                .is_none()
-        {
-            warnings.push(format!(
-                "{}: pole {estimate_key} nemá platný počet minut",
-                entry.path().display()
-            ));
-        }
-        let tags = frontmatter
-            .and_then(|yaml| frontmatter_value(yaml, "tags"))
-            .map(parse_tags)
-            .unwrap_or_default();
-        let fields = field_keys
-            .iter()
-            .filter_map(|field| {
-                let values = frontmatter
-                    .and_then(|yaml| frontmatter_value(yaml, field))
-                    .map(parse_tags)
-                    .unwrap_or_default();
-                (!values.is_empty()).then(|| (field.clone(), values))
-            })
-            .collect();
-        let relative_path = entry
-            .path()
-            .strip_prefix(root)
-            .unwrap_or(entry.path())
-            .to_string_lossy()
-            .into_owned();
-        let name = entry
-            .path()
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("Poznámka")
-            .to_owned();
-        notes.push(Note {
-            path: entry.path().to_path_buf(),
+            .is_none()
+    {
+        warnings.push(format!(
+            "{}: pole {estimate_key} nemá platný počet minut",
+            path.display()
+        ));
+    }
+    let tags = frontmatter
+        .and_then(|yaml| frontmatter_value(yaml, "tags"))
+        .map(parse_tags)
+        .unwrap_or_default();
+    let fields = field_keys
+        .iter()
+        .filter_map(|field| {
+            let values = frontmatter
+                .and_then(|yaml| frontmatter_value(yaml, field))
+                .map(parse_tags)
+                .unwrap_or_default();
+            (!values.is_empty()).then(|| (field.clone(), values))
+        })
+        .collect();
+    let relative_path = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned();
+    let name = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Poznámka")
+        .to_owned();
+    Ok((
+        Note {
+            path: path.to_path_buf(),
             name,
             relative_path,
             duration_ms,
@@ -140,10 +238,9 @@ pub fn scan_notes_detailed(
             tags,
             time_estimate_minutes,
             fields,
-        });
-    }
-    notes.sort_by_key(|note| note.name.to_lowercase());
-    Ok(NoteScan { notes, warnings })
+        },
+        warnings,
+    ))
 }
 
 fn parse_tags(value: &str) -> Vec<String> {
@@ -510,6 +607,40 @@ mod tests {
         assert_eq!(scan.notes.len(), 1);
         assert_eq!(scan.warnings.len(), 2);
         assert_eq!(scan.notes[0].fields["project"], ["alpha", "beta"]);
+
+        fs::remove_dir_all(&vault).expect("remove temporary vault");
+    }
+
+    #[test]
+    fn incremental_index_reuses_unchanged_notes_and_reloads_changed_files() {
+        let vault = temporary_vault();
+        fs::create_dir_all(&vault).expect("create temporary vault");
+        let note = vault.join("indexed.md");
+        fs::write(&note, "---\nTimework: 00:01:00\n---\nFirst body\n").expect("write fixture");
+
+        let mut index = NoteIndex::default();
+        let first = index
+            .scan(&vault, "Timework", "timeEstimate", &[])
+            .expect("first scan");
+        assert_eq!(first.notes[0].duration_ms, 60_000);
+        assert_eq!(index.cache_hits(), 0);
+
+        let second = index
+            .scan(&vault, "Timework", "timeEstimate", &[])
+            .expect("cached scan");
+        assert_eq!(second.notes.len(), 1);
+        assert_eq!(index.cache_hits(), 1);
+
+        fs::write(
+            &note,
+            "---\nTimework: 00:02:00\n---\nA changed and longer body\n",
+        )
+        .expect("change fixture");
+        let third = index
+            .scan(&vault, "Timework", "timeEstimate", &[])
+            .expect("changed scan");
+        assert_eq!(third.notes[0].duration_ms, 120_000);
+        assert_eq!(index.cache_hits(), 0);
 
         fs::remove_dir_all(&vault).expect("remove temporary vault");
     }

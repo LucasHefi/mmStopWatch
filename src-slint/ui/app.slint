@@ -85,18 +85,15 @@ export struct ProfileRow {
 component AmbientOrb inherits Rectangle {
     in property <color> glow-color;
     border-radius: self.width / 2;
-    background: glow-color;
-    opacity: 0.045;
-
-    Rectangle {
-        x: parent.width * 0.18;
-        y: parent.height * 0.18;
-        width: parent.width * 0.64;
-        height: parent.height * 0.64;
-        border-radius: self.width / 2;
-        background: root.glow-color;
-        opacity: 0.18;
-    }
+    background: @radial-gradient(
+        circle,
+        glow-color.with-alpha(0.105) 0%,
+        glow-color.with-alpha(0.045) 38%,
+        glow-color.with-alpha(0.014) 62%,
+        transparent 78%
+    );
+    animate x { duration: 700ms; easing: ease-in-out; }
+    animate y { duration: 700ms; easing: ease-in-out; }
 }
 
 component SmallButton inherits Rectangle {
@@ -111,6 +108,8 @@ component SmallButton inherits Rectangle {
     opacity: enabled ? 1 : 0.35;
     border-width: 1px;
     border-color: danger ? #ef444455 : active ? #71717a66 : #ffffff0b;
+    animate background { duration: 130ms; easing: ease-out; }
+    animate border-color { duration: 160ms; easing: ease-out; }
 
     Text {
         text: root.label;
@@ -133,6 +132,8 @@ component RoundAction inherits Rectangle {
     background: touch.pressed ? #3f3f46 : touch.has-hover ? #2b2b30 : filled ? accent : #202024;
     border-width: 1px;
     border-color: filled ? accent : #ffffff12;
+    animate background { duration: 130ms; easing: ease-out; }
+    animate border-color { duration: 160ms; easing: ease-out; }
 
     Text {
         text: root.label;
@@ -173,129 +174,142 @@ component TimerCard inherits Rectangle {
     callback set-estimate(int);
     callback custom-estimate;
     callback move(int);
-    height: 191px;
-    border-radius: 15px;
-    background: #111113f2;
+    touch := TouchArea { }
+    height: 252px;
+    border-radius: 17px;
+    background: touch.has-hover ? #1b1b1fe8 : #151518df;
     border-width: 1px;
-    border-color: timer.running ? timer.color : #ffffff0c;
+    border-color: timer.expired ? #ef4444b8 : timer.running ? timer.color.with-alpha(0.58) : #ffffff14;
     clip: true;
+    animate background { duration: 220ms; easing: ease-out; }
+    animate border-color { duration: 220ms; easing: ease-out; }
 
     Rectangle {
         x: 0;
-        width: 3px;
+        width: 4px;
         height: parent.height;
         background: root.timer.color;
     }
     Rectangle {
-        x: -80px;
-        y: 18px;
-        width: 210px;
-        height: 160px;
-        border-radius: 105px;
-        background: root.timer.color;
-        opacity: root.timer.running ? 0.075 : 0.035;
+        x: -90px;
+        y: 20px;
+        width: 300px;
+        height: 230px;
+        border-radius: 150px;
+        background: @radial-gradient(
+            circle,
+            root.timer.color.with-alpha(root.timer.running ? 0.13 : 0.055) 0%,
+            root.timer.color.with-alpha(root.timer.running ? 0.055 : 0.024) 45%,
+            transparent 78%
+        );
+    }
+    Rectangle {
+        x: parent.width * 0.42;
+        y: -110px;
+        width: parent.width * 0.72;
+        height: 270px;
+        border-radius: 135px;
+        background: @radial-gradient(circle, #a855f728 0%, #a855f70e 48%, transparent 78%);
     }
 
     VerticalLayout {
-        padding-left: 18px;
-        padding-right: 15px;
-        padding-top: 12px;
-        padding-bottom: 12px;
-        spacing: 8px;
+        padding-left: 28px;
+        padding-right: 24px;
+        padding-top: 20px;
+        padding-bottom: 20px;
+        spacing: 10px;
 
         HorizontalLayout {
-            height: 23px;
+            height: 28px;
             spacing: 8px;
             Text {
                 text: root.timer.name;
                 color: #e4e4e7;
-                font-size: 13px;
-                font-weight: 600;
+                font-size: 15px;
+                font-weight: 500;
                 overflow: elide;
                 vertical-alignment: center;
             }
-            Text {
-                text: root.timer.running ? I18n.tr(I18n.language, "active") : I18n.tr(I18n.language, "pause");
-                color: root.timer.running ? root.timer.color : #71717a;
-                font-size: 9px;
-                font-weight: 700;
-                vertical-alignment: center;
-            }
-            SmallButton { width: 25px; label: "‹"; clicked => root.move(-1); }
-            SmallButton { width: 25px; label: "›"; clicked => root.move(1); }
-            SmallButton { width: 30px; label: "×"; danger: true; clicked => root.discard(); }
-        }
-
-        HorizontalLayout {
-            height: 25px;
-            spacing: 5px;
-            Text { width: 37px; text: I18n.tr(I18n.language, "setEstimate"); color: #71717a; font-size: 10px; vertical-alignment: center; overflow: elide; }
-            EstimatePreset { width: 29px; minutes: 15; selected: root.timer.estimate-minutes == 15; clicked => root.set-estimate(15); }
-            EstimatePreset { width: 29px; minutes: 25; selected: root.timer.estimate-minutes == 25; clicked => root.set-estimate(25); }
-            EstimatePreset { width: 29px; minutes: 30; selected: root.timer.estimate-minutes == 30; clicked => root.set-estimate(30); }
-            EstimatePreset { width: 29px; minutes: 45; selected: root.timer.estimate-minutes == 45; clicked => root.set-estimate(45); }
-            EstimatePreset { width: 29px; minutes: 60; selected: root.timer.estimate-minutes == 60; clicked => root.set-estimate(60); }
-            EstimatePreset { width: 31px; minutes: 90; selected: root.timer.estimate-minutes == 90; clicked => root.set-estimate(90); }
-            SmallButton { width: 34px; height: 25px; label: "…"; active: root.timer.estimate-minutes > 0 && root.timer.estimate-minutes != 15 && root.timer.estimate-minutes != 25 && root.timer.estimate-minutes != 30 && root.timer.estimate-minutes != 45 && root.timer.estimate-minutes != 60 && root.timer.estimate-minutes != 90; clicked => root.custom-estimate(); }
-            Rectangle { horizontal-stretch: 1; }
+            SmallButton { width: 28px; height: 28px; label: "‹"; clicked => root.move(-1); }
+            SmallButton { width: 28px; height: 28px; label: "›"; clicked => root.move(1); }
+            SmallButton { width: 34px; height: 28px; label: "×"; danger: true; clicked => root.discard(); }
         }
 
         if root.timer.estimate-minutes > 0 : VerticalLayout {
-            height: 24px;
-            spacing: 4px;
+            height: 38px;
+            spacing: 7px;
+            HorizontalLayout {
+                spacing: 7px;
+                Text { text: "◷  " + root.timer.estimate-minutes + " min"; color: #a1a1aa; font-size: 11px; vertical-alignment: center; }
+                Text { text: "·  " + root.timer.estimate-status; color: root.timer.expired ? #fb7185 : #a1a1aa; font-size: 11px; vertical-alignment: center; }
+                Text { text: "·  " + Math.round(root.timer.estimate-progress * 100) + "%"; color: #71717a; font-size: 10px; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+            }
             Rectangle {
-                height: 4px;
-                border-radius: 2px;
-                background: #27272a;
+                height: 6px;
+                border-radius: 3px;
+                background: #3f3f46;
                 Rectangle {
                     width: parent.width * root.timer.estimate-progress;
                     height: parent.height;
-                    border-radius: 2px;
+                    border-radius: 3px;
                     background: root.timer.expired ? #fb7185 : root.timer.color;
+                    animate width { duration: 260ms; easing: linear; }
                 }
             }
-            Text {
-                text: root.timer.estimate-status;
-                color: root.timer.expired ? #fb7185 : #71717a;
-                font-size: 9px;
-                horizontal-alignment: right;
-            }
+        }
+
+        HorizontalLayout {
+            height: 27px;
+            spacing: 5px;
+            if root.timer.estimate-minutes == 0 : EstimatePreset { width: 38px; minutes: 15; selected: false; clicked => root.set-estimate(15); }
+            if root.timer.estimate-minutes == 0 : EstimatePreset { width: 38px; minutes: 25; selected: false; clicked => root.set-estimate(25); }
+            if root.timer.estimate-minutes == 0 : EstimatePreset { width: 38px; minutes: 30; selected: false; clicked => root.set-estimate(30); }
+            if root.timer.estimate-minutes == 0 : EstimatePreset { width: 38px; minutes: 45; selected: false; clicked => root.set-estimate(45); }
+            if root.timer.estimate-minutes == 0 : EstimatePreset { width: 38px; minutes: 60; selected: false; clicked => root.set-estimate(60); }
+            if root.timer.estimate-minutes == 0 : EstimatePreset { width: 38px; minutes: 90; selected: false; clicked => root.set-estimate(90); }
+            if root.timer.estimate-minutes > 0 : SmallButton { width: 56px; height: 27px; label: "✎ " + root.timer.estimate-minutes + "m"; clicked => root.custom-estimate(); }
+            if root.timer.estimate-minutes > 0 : SmallButton { width: 29px; height: 27px; label: "×"; danger: true; clicked => root.set-estimate(0); }
+            if root.timer.estimate-minutes == 0 : SmallButton { width: 38px; height: 27px; label: "…"; clicked => root.custom-estimate(); }
+            Rectangle { horizontal-stretch: 1; }
         }
 
         HorizontalLayout {
             vertical-stretch: 1;
-            spacing: 12px;
+            spacing: 18px;
             VerticalLayout {
                 alignment: center;
                 spacing: 2px;
                 Text {
                     text: root.timer.elapsed;
                     color: #fafafa;
-                    font-size: 29px;
-                    font-weight: 700;
-                    letter-spacing: -0.5px;
+                    font-family: "monospace";
+                    font-size: 56px;
+                    font-weight: 500;
+                    letter-spacing: -1.5px;
                     vertical-alignment: bottom;
                 }
                 Text {
                     text: root.timer.added;
                     color: root.timer.color;
-                    font-size: 10px;
+                    font-family: "monospace";
+                    font-size: 12px;
                     font-weight: 600;
                     horizontal-alignment: right;
                 }
             }
             Rectangle { horizontal-stretch: 1; }
             RoundAction {
-                width: 42px;
-                height: 42px;
+                width: 46px;
+                height: 46px;
                 label: root.timer.running ? "Ⅱ" : "▶";
                 accent: root.timer.color;
                 filled: !root.timer.running;
                 clicked => root.toggle();
             }
             RoundAction {
-                width: 42px;
-                height: 42px;
+                width: 46px;
+                height: 46px;
                 label: "✓";
                 accent: #a1a1aa;
                 clicked => root.save();
@@ -796,34 +810,46 @@ component NoteCard inherits Rectangle {
     callback preview;
     callback edit;
     callback obsidian;
-    height: 108px;
+    height: 104px;
     border-radius: 12px;
-    background: touch.has-hover ? #27272ad9 : note.active ? #202323e8 : #18181bcc;
+    background: touch.has-hover ? #29292ed9 : note.active ? #202327f0 : note.pinned ? #202024e8 : #18181bd9;
     border-width: 1px;
-    border-color: note.active ? #10b98144 : #ffffff08;
+    border-color: note.active ? #64748b99 : #ffffff0d;
     clip: true;
+    animate background { duration: 150ms; easing: ease-out; }
+    animate border-color { duration: 180ms; easing: ease-out; }
+
+    Rectangle {
+        width: 2px;
+        height: parent.height;
+        background: root.note.active ? #818cf8 : root.note.pinned ? #6366f1 : #64748b;
+        opacity: root.note.active || root.note.pinned ? 0.9 : 0.55;
+    }
 
     touch := TouchArea { clicked => root.open(); }
     VerticalLayout {
-        padding: 10px;
-        spacing: 4px;
+        padding-left: 13px;
+        padding-right: 10px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        spacing: 5px;
         HorizontalLayout {
-            height: 17px;
-            Text { text: root.note.relative-path; color: #52525b; font-size: 9px; overflow: elide; vertical-alignment: center; }
-            SmallButton { width: 24px; height: 20px; label: root.note.pinned ? "◆" : "◇"; active: root.note.pinned; clicked => root.pin(); }
+            height: 16px;
+            Text { text: root.note.relative-path; color: #71717a; font-size: 10px; overflow: elide; vertical-alignment: center; }
+            SmallButton { width: 25px; height: 20px; label: root.note.pinned ? "◆" : "◇"; active: root.note.pinned; clicked => root.pin(); }
         }
         HorizontalLayout {
-            Text { text: root.note.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; }
-            Text { text: root.note.active ? "▶" : root.note.duration; color: root.note.active ? #34d399 : #a1a1aa; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+            height: 21px;
+            Text { text: root.note.name; color: #f4f4f5; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+            Text { text: root.note.active ? "▶  " + root.note.duration : root.note.duration; color: root.note.active ? #818cf8 : #d4d4d8; font-size: 12px; font-weight: 600; vertical-alignment: center; }
         }
         HorizontalLayout {
-            height: 20px;
-            Text { text: root.note.tags; color: #71717a; font-size: 9px; overflow: elide; vertical-alignment: center; }
-            SmallButton { width: 23px; height: 20px; label: "✎"; clicked => root.edit(); }
-            SmallButton { width: 23px; height: 20px; label: "◉"; clicked => root.preview(); }
-            SmallButton { width: 23px; height: 20px; label: "↗"; clicked => root.obsidian(); }
+            height: 24px;
+            Text { text: root.note.tags; color: #a1a1aa; font-size: 10px; overflow: elide; vertical-alignment: center; }
+            SmallButton { width: 26px; height: 23px; label: "✎"; clicked => root.edit(); }
+            SmallButton { width: 26px; height: 23px; label: "◉"; clicked => root.preview(); }
+            SmallButton { width: 26px; height: 23px; label: "↗"; clicked => root.obsidian(); }
         }
-        Text { text: root.note.preview; color: #52525b; font-size: 9px; overflow: elide; }
     }
 }
 
@@ -892,6 +918,10 @@ export component AppWindow inherits Window {
     property <bool> compact: root.viewport-width < 760px || root.force-compact;
     in-out property <bool> sidebar-open: false;
     in property <int> note-count: 0;
+    in property <int> notes-loaded: 0;
+    in property <int> filtered-note-count: 0;
+    in property <bool> has-more-notes: false;
+    in property <bool> notes-loading: false;
     in property <string> scan-warning: "";
     in property <string> total-duration: "00:00:00";
     in-out property <bool> onboarding-visible: false;
@@ -965,10 +995,10 @@ export component AppWindow inherits Window {
     in property <int> stats-productivity-direction: 0;
     in-out property <int> stats-tab: 0;
     in property <[ProfileRow]> profiles;
-    in property <float> glow-a-x: 38;
-    in property <float> glow-a-y: 18;
-    in property <float> glow-b-x: 70;
-    in property <float> glow-b-y: 70;
+    in property <float> glow-a-x: 18;
+    in property <float> glow-a-y: 24;
+    in property <float> glow-b-x: 48;
+    in property <float> glow-b-y: 66;
     property <bool> selected-layout-feasible: root.layout-columns == 1
         || (root.layout-columns == 2 && root.viewport-width >= 1086px)
         || (root.layout-columns == 3 && root.viewport-width >= 1461px)
@@ -1011,6 +1041,7 @@ export component AppWindow inherits Window {
     callback choose-alert-sound;
     callback check-update;
     callback install-update;
+    callback load-more-notes;
 
     for row in 10 : Rectangle {
         background: transparent;
@@ -1045,11 +1076,13 @@ export component AppWindow inherits Window {
 
         if !root.compact || !root.sidebar-open : Rectangle {
             horizontal-stretch: 1;
-            background: #09090bd9;
+            background: #09090b88;
 
             VerticalLayout {
-                padding: 8px;
-                spacing: 7px;
+                padding: 24px;
+                spacing: 10px;
+
+                if root.timer-count > 0 : Rectangle { vertical-stretch: 1.5; background: transparent; }
 
                 HorizontalLayout {
                     height: 30px;
@@ -1076,6 +1109,8 @@ export component AppWindow inherits Window {
                 }
 
                 if root.timer-count > 0 && (!root.table-view || root.compact) && (root.layout-columns == 1 || !root.selected-layout-feasible || root.compact) : ListView {
+                    vertical-stretch: 0;
+                    height: Math.min(root.timer-count * 262px, root.preview-height - 128px);
                     for timer[index] in root.timers : TimerCard {
                         timer: timer;
                         row-index: index;
@@ -1089,9 +1124,11 @@ export component AppWindow inherits Window {
                 }
 
                 if root.timer-count > 0 && !root.table-view && !root.compact && root.layout-columns > 1 && root.selected-layout-feasible : ListView {
+                    vertical-stretch: 0;
+                    height: Math.min((root.timer-count / root.layout-columns + 1) * 262px, root.preview-height - 128px);
                     for group[row-index] in root.timer-grid : HorizontalLayout {
-                        height: 191px;
-                        spacing: 7px;
+                        height: 252px;
+                        spacing: 16px;
                         if group.has-a : TimerCard { timer: group.a; row-index: row-index * root.layout-columns; toggle => root.toggle-timer(row-index * root.layout-columns); save => root.save-timer(row-index * root.layout-columns); discard => root.discard-timer(row-index * root.layout-columns); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns; root.custom-estimate-value = group.a.estimate-minutes > 0 ? group.a.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns, offset); }
                         if !group.has-a : Rectangle { background: transparent; }
                         if group.has-b : TimerCard { timer: group.b; row-index: row-index * root.layout-columns + 1; toggle => root.toggle-timer(row-index * root.layout-columns + 1); save => root.save-timer(row-index * root.layout-columns + 1); discard => root.discard-timer(row-index * root.layout-columns + 1); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns + 1, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns + 1; root.custom-estimate-value = group.b.estimate-minutes > 0 ? group.b.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns + 1, offset); }
@@ -1131,24 +1168,27 @@ export component AppWindow inherits Window {
                     font-size: 9px;
                     overflow: elide;
                 }
+
+                if root.timer-count > 0 : Rectangle { vertical-stretch: 1; background: transparent; }
             }
         }
 
         if !root.compact || root.sidebar-open : Rectangle {
             horizontal-stretch: root.compact ? 1 : 0;
-            min-width: root.compact ? 0px : 320px;
-            max-width: root.compact ? 10000px : 320px;
+            min-width: root.compact ? 0px : 316px;
+            max-width: root.compact ? 10000px : 400px;
+            preferred-width: 316px;
             background: #0c0c0fee;
             border-width: 1px;
             border-color: #ffffff0d;
 
             VerticalLayout {
-                padding: 6px;
-                spacing: 7px;
+                padding: 24px;
+                spacing: 12px;
 
                 Rectangle {
-                    height: 50px;
-                    border-radius: 11px;
+                    height: 40px;
+                    border-radius: 12px;
                     background: #18181bd9;
                     border-width: 1px;
                     border-color: #ffffff09;
@@ -1159,20 +1199,20 @@ export component AppWindow inherits Window {
                             alignment: center;
                             spacing: 1px;
                         Text { text: I18n.tr(I18n.language, "totalTime"); color: #52525b; font-size: 8px; font-weight: 700; }
-                            Text { text: root.total-duration; color: #e4e4e7; font-size: 16px; font-weight: 700; }
+                            Text { text: root.total-duration; color: #e4e4e7; font-size: 14px; font-weight: 700; }
                         }
                         Rectangle { horizontal-stretch: 1; }
                         VerticalLayout {
                             alignment: center;
                             spacing: 1px;
                         Text { text: I18n.tr(I18n.language, "noteBreakdown"); color: #52525b; font-size: 8px; font-weight: 700; horizontal-alignment: right; }
-                            Text { text: root.note-count; color: #a1a1aa; font-size: 15px; font-weight: 600; horizontal-alignment: right; }
+                            Text { text: root.note-count; color: #a1a1aa; font-size: 13px; font-weight: 600; horizontal-alignment: right; }
                         }
                     }
                 }
 
                 HorizontalLayout {
-                    height: 31px;
+                    height: 32px;
                     spacing: 5px;
                     if root.compact : SmallButton { width: 70px; label: "‹ " + I18n.tr(I18n.language, "activeTimers"); clicked => { root.sidebar-open = false; } }
                     SmallButton { horizontal-stretch: 1; label: "+ " + I18n.tr(I18n.language, "new"); clicked => { root.new-note-open = true; } }
@@ -1188,10 +1228,21 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    height: 13px;
+                    height: 12px;
                     text: root.vault-path == "" ? I18n.tr(I18n.language, "notesFolder") : root.vault-path;
                     color: #3f3f46;
                     font-size: 8px;
+                    overflow: elide;
+                }
+
+                Text {
+                    height: 13px;
+                    text: root.notes-loading ? "Obnovuji index na pozadí…"
+                        : root.filtered-note-count > root.notes-loaded
+                        ? "Zobrazeno " + root.notes-loaded + " z " + root.filtered-note-count + " · rychlý index"
+                        : root.filtered-note-count + " poznámek · index připraven";
+                    color: root.notes-loading ? #38bdf8 : #52525b;
+                    font-size: 9px;
                     overflow: elide;
                 }
 
@@ -1215,7 +1266,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.notes.length > 0 : ListView {
+                if root.notes.length > 0 : notes-list := ListView {
+                    scrolled => {
+                        if root.has-more-notes && -notes-list.viewport-y + notes-list.visible-height >= notes-list.viewport-height - 420px {
+                            root.load-more-notes();
+                        }
+                    }
                     for note[index] in root.notes : NoteCard {
                         note: note;
                         open => root.add-timer(index);

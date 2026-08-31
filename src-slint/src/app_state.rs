@@ -2,7 +2,7 @@ use crate::{
     AppWindow, NoteRow, TimerGridRow, TimerRow,
     config::{AppConfig, TimerCheckpoint, load_timer_checkpoints, save_timer_checkpoints},
     i18n,
-    storage::{Note, format_stopwatch, format_time, scan_notes_detailed},
+    storage::{Note, NoteIndex, NoteScan, format_stopwatch, format_time},
     timer::NativeTimer,
 };
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -12,15 +12,24 @@ pub const COLORS: [u32; 8] = [
     0x34d399, 0x38bdf8, 0xa78bfa, 0xfbbf24, 0xfb7185, 0x2dd4bf, 0x818cf8, 0xa3e635,
 ];
 
+/// Keep the Slint model deliberately small. The complete lightweight note
+/// index stays in Rust, while the sidebar receives rows in demand-driven
+/// batches as the user scrolls.
+pub const NOTE_PAGE_SIZE: usize = 48;
+
 pub struct AppState {
     pub config: AppConfig,
     pub notes: Vec<Note>,
     pub visible_notes: Vec<usize>,
+    pub loaded_note_count: usize,
     pub timers: Vec<NativeTimer>,
     pub timer_model: Rc<VecModel<TimerRow>>,
     pub timer_grid_model: Rc<VecModel<TimerGridRow>>,
     pub search: String,
     pub scan_warnings: Vec<String>,
+    pub note_index: NoteIndex,
+    pub index_cache_hits: usize,
+    pub scan_in_progress: bool,
     diagnostics: bool,
 }
 
@@ -30,11 +39,15 @@ impl AppState {
             config,
             notes: Vec::new(),
             visible_notes: Vec::new(),
+            loaded_note_count: NOTE_PAGE_SIZE,
             timers: Vec::new(),
             timer_model: Rc::new(VecModel::default()),
             timer_grid_model: Rc::new(VecModel::default()),
             search: String::new(),
             scan_warnings: Vec::new(),
+            note_index: NoteIndex::default(),
+            index_cache_hits: 0,
+            scan_in_progress: false,
             diagnostics,
         }
     }
@@ -45,17 +58,24 @@ impl AppState {
             .vault_path
             .as_deref()
             .ok_or_else(|| "Nejdřív vyberte složku s poznámkami.".to_owned())?;
-        let scan = scan_notes_detailed(
-            root,
-            &self.config.frontmatter_key,
-            &self.config.time_estimate_key,
-            &self.config.stats_field_keys,
-        )
-        .map_err(|error| error.to_string())?;
+        let scan = self
+            .note_index
+            .scan(
+                root,
+                &self.config.frontmatter_key,
+                &self.config.time_estimate_key,
+                &self.config.stats_field_keys,
+            )
+            .map_err(|error| error.to_string())?;
+        self.index_cache_hits = self.note_index.cache_hits();
+        self.apply_note_scan(scan);
+        Ok(self.notes.len())
+    }
+
+    pub fn apply_note_scan(&mut self, scan: NoteScan) {
         self.notes = scan.notes;
         self.scan_warnings = scan.warnings;
         self.apply_filter();
-        Ok(self.notes.len())
     }
 
     pub fn apply_filter(&mut self) {
@@ -83,6 +103,20 @@ impl AppState {
                 note.name.to_lowercase(),
             )
         });
+        self.loaded_note_count = NOTE_PAGE_SIZE.min(self.visible_notes.len());
+    }
+
+    pub fn load_more_notes(&mut self) -> bool {
+        let previous = self.loaded_note_count;
+        self.loaded_note_count = self
+            .loaded_note_count
+            .saturating_add(NOTE_PAGE_SIZE)
+            .min(self.visible_notes.len());
+        self.loaded_note_count != previous
+    }
+
+    pub fn has_more_notes(&self) -> bool {
+        self.loaded_note_count < self.visible_notes.len()
     }
 
     pub fn restore_timers(&mut self) {
@@ -196,6 +230,7 @@ pub fn note_rows(state: &AppState) -> ModelRc<NoteRow> {
     let rows = state
         .visible_notes
         .iter()
+        .take(state.loaded_note_count)
         .map(|index| {
             let note = &state.notes[*index];
             NoteRow {
@@ -203,7 +238,10 @@ pub fn note_rows(state: &AppState) -> ModelRc<NoteRow> {
                 path: note.path.to_string_lossy().into_owned().into(),
                 relative_path: note.relative_path.clone().into(),
                 duration: format_time(note.duration_ms).into(),
-                preview: note.preview.clone().into(),
+                // The sidebar intentionally carries summaries only. Preview
+                // text remains in the Rust index and is fetched when the user
+                // opens the preview dialog.
+                preview: "".into(),
                 tags: note
                     .tags
                     .iter()
@@ -260,8 +298,16 @@ pub fn timer_row(timer: &NativeTimer, language: &str) -> TimerRow {
     }
 }
 
-pub fn refresh_models(ui: &AppWindow, state: &AppState) {
+pub fn refresh_note_model(ui: &AppWindow, state: &AppState) {
     ui.set_notes(note_rows(state));
+    ui.set_note_count(state.notes.len() as i32);
+    ui.set_notes_loaded(state.loaded_note_count.min(state.visible_notes.len()) as i32);
+    ui.set_filtered_note_count(state.visible_notes.len() as i32);
+    ui.set_has_more_notes(state.has_more_notes());
+}
+
+pub fn refresh_models(ui: &AppWindow, state: &AppState) {
+    refresh_note_model(ui, state);
     state.timer_model.set_vec(
         state
             .timers
@@ -271,7 +317,6 @@ pub fn refresh_models(ui: &AppWindow, state: &AppState) {
     );
     sync_grid_model(state);
     ui.set_timer_count(state.timers.len() as i32);
-    ui.set_note_count(state.notes.len() as i32);
     ui.set_scan_warning(if state.scan_warnings.is_empty() {
         "".into()
     } else {
@@ -376,5 +421,33 @@ mod tests {
             ["a.md", "b.md", "new.md"]
         );
         assert!(!state.move_timer(0, -1));
+    }
+
+    #[test]
+    fn large_note_lists_are_exposed_to_the_ui_in_bounded_pages() {
+        let mut state = AppState::new(AppConfig::default(), true);
+        state.notes = (0..125)
+            .map(|index| Note {
+                path: PathBuf::from(format!("note-{index:03}.md")),
+                name: format!("Note {index:03}"),
+                relative_path: format!("folder/note-{index:03}.md"),
+                duration_ms: 0,
+                preview: "Preview stays in the Rust index".into(),
+                tags: vec!["test".into()],
+                time_estimate_minutes: None,
+                fields: std::collections::HashMap::new(),
+            })
+            .collect();
+        state.apply_filter();
+
+        assert_eq!(state.loaded_note_count, NOTE_PAGE_SIZE);
+        assert_eq!(note_rows(&state).row_count(), NOTE_PAGE_SIZE);
+        assert!(state.has_more_notes());
+        assert!(state.load_more_notes());
+        assert_eq!(note_rows(&state).row_count(), NOTE_PAGE_SIZE * 2);
+        assert!(state.load_more_notes());
+        assert_eq!(note_rows(&state).row_count(), 125);
+        assert!(!state.has_more_notes());
+        assert!(!state.load_more_notes());
     }
 }

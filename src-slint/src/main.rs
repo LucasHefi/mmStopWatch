@@ -14,8 +14,8 @@ mod updater;
 
 use activity::append_activity;
 use app_state::{
-    AppState, COLORS, note_rows, refresh_grid_row, refresh_models, set_status, sync_grid_model,
-    timer_row,
+    AppState, COLORS, refresh_grid_row, refresh_models, refresh_note_model, set_status,
+    sync_grid_model, timer_row,
 };
 use chrono::{Datelike, Local};
 use config::AppConfig;
@@ -30,13 +30,104 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     rc::Rc,
+    sync::mpsc::{Receiver, Sender},
     thread,
     time::{Duration, Instant},
 };
-use storage::{create_note, write_time_estimate, write_total_duration};
+use storage::{NoteIndex, NoteScan, create_note, write_time_estimate, write_total_duration};
 use timer::NativeTimer;
 
 slint::include_modules!();
+
+type AsyncScanResult = (NoteIndex, Result<NoteScan, String>, String, String);
+
+fn scan_identity(config: &AppConfig) -> String {
+    format!(
+        "{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        config
+            .vault_path
+            .as_deref()
+            .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
+        config.frontmatter_key,
+        config.time_estimate_key,
+        config.stats_field_keys.join("\u{1e}")
+    )
+}
+
+fn start_async_scan(
+    ui: &AppWindow,
+    state: &Rc<RefCell<AppState>>,
+    sender: &Sender<AsyncScanResult>,
+    completed_label: &str,
+) {
+    let work = {
+        let mut state = state.borrow_mut();
+        if state.scan_in_progress {
+            set_status(ui, "Index poznámek se už obnovuje…", false);
+            return;
+        }
+        let Some(root) = state.config.vault_path.clone() else {
+            set_status(ui, "Nejdřív vyberte složku s poznámkami.", true);
+            return;
+        };
+        state.scan_in_progress = true;
+        (
+            std::mem::take(&mut state.note_index),
+            root,
+            state.config.frontmatter_key.clone(),
+            state.config.time_estimate_key.clone(),
+            state.config.stats_field_keys.clone(),
+            scan_identity(&state.config),
+        )
+    };
+    ui.set_notes_loading(true);
+    set_status(ui, "Obnovuji rychlý index poznámek…", false);
+    let sender = sender.clone();
+    let completed_label = completed_label.to_owned();
+    thread::spawn(move || {
+        let (mut index, root, key, estimate_key, field_keys, identity) = work;
+        let result = index
+            .scan(&root, &key, &estimate_key, &field_keys)
+            .map_err(|error| error.to_string());
+        let _ = sender.send((index, result, completed_label, identity));
+    });
+}
+
+fn apply_async_scan_results(
+    ui: &AppWindow,
+    state: &Rc<RefCell<AppState>>,
+    receiver: &Receiver<AsyncScanResult>,
+) {
+    while let Ok((index, result, completed_label, identity)) = receiver.try_recv() {
+        let mut state = state.borrow_mut();
+        state.scan_in_progress = false;
+        ui.set_notes_loading(false);
+        if scan_identity(&state.config) != identity {
+            set_status(
+                ui,
+                "Výsledek staršího indexování byl přeskočen po změně trezoru nebo nastavení.",
+                false,
+            );
+            continue;
+        }
+        state.index_cache_hits = index.cache_hits();
+        state.note_index = index;
+        match result {
+            Ok(scan) => {
+                state.apply_note_scan(scan);
+                let count = state.notes.len();
+                let cached = state.index_cache_hits;
+                refresh_models(ui, &state);
+                set_status(
+                    ui,
+                    format!("{completed_label} {count} poznámek · {cached} z cache"),
+                    false,
+                );
+            }
+            Err(error) => set_status(ui, error, true),
+        }
+    }
+}
 
 fn write_snapshot(ui: &AppWindow, path: &Path) -> io::Result<()> {
     let pixels = ui.window().take_snapshot().map_err(io::Error::other)?;
@@ -348,6 +439,7 @@ fn main() -> Result<(), slint::PlatformError> {
         .unwrap_or_else(|| usize::from(std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some()));
     let diagnostics = preview_count > 0;
     let state = Rc::new(RefCell::new(AppState::new(config, diagnostics)));
+    let (scan_sender, scan_receiver) = std::sync::mpsc::channel::<AsyncScanResult>();
     ui.set_timers(ModelRc::from(state.borrow().timer_model.clone()));
     ui.set_timer_grid(ModelRc::from(state.borrow().timer_grid_model.clone()));
 
@@ -1015,13 +1107,10 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        let scan_sender = scan_sender.clone();
         ui.on_refresh(move || {
             let Some(ui) = weak.upgrade() else { return };
-            match state.borrow_mut().reload() {
-                Ok(count) => set_status(&ui, format!("Obnoveno {count} poznámek"), false),
-                Err(error) => set_status(&ui, error, true),
-            }
-            refresh_models(&ui, &state.borrow());
+            start_async_scan(&ui, &state, &scan_sender, "Obnoveno");
         });
     }
 
@@ -1033,7 +1122,19 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut state = state.borrow_mut();
             state.search = query.to_string();
             state.apply_filter();
-            ui.set_notes(note_rows(&state));
+            refresh_note_model(&ui, &state);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_load_more_notes(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            if state.load_more_notes() {
+                refresh_note_model(&ui, &state);
+            }
         });
     }
 
@@ -1167,7 +1268,7 @@ fn main() -> Result<(), slint::PlatformError> {
             {
                 set_status(&ui, format!("Připnutí se nepodařilo uložit: {error}"), true);
             }
-            ui.set_notes(note_rows(&state));
+            refresh_note_model(&ui, &state);
         });
     }
 
@@ -1325,6 +1426,16 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    let scan_result_tick = Timer::default();
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        scan_result_tick.start(TimerMode::Repeated, Duration::from_millis(40), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            apply_async_scan_results(&ui, &state, &scan_receiver);
+        });
+    }
+
     let timer_tick = Timer::default();
     {
         let weak = ui.as_weak();
@@ -1407,10 +1518,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             }
             phase = (phase + 0.012) % std::f32::consts::TAU;
-            ui.set_glow_a_x(38.0 + phase.sin() * 18.0);
-            ui.set_glow_a_y(18.0 + (phase * 0.7).cos() * 10.0);
-            ui.set_glow_b_x(70.0 + (phase * 0.8).cos() * 14.0);
-            ui.set_glow_b_y(70.0 + (phase * 0.55).sin() * 12.0);
+            ui.set_glow_a_x(18.0 + phase.sin() * 9.0);
+            ui.set_glow_a_y(24.0 + (phase * 0.7).cos() * 10.0);
+            ui.set_glow_b_x(48.0 + (phase * 0.8).cos() * 10.0);
+            ui.set_glow_b_y(66.0 + (phase * 0.55).sin() * 11.0);
         });
     }
 
@@ -1429,20 +1540,19 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        let scan_sender = scan_sender.clone();
         let mut last_refresh = Instant::now();
         let mut last_notification = Instant::now();
         maintenance_tick.start(TimerMode::Repeated, Duration::from_secs(30), move || {
             let Some(ui) = weak.upgrade() else { return };
-            let mut state = state.borrow_mut();
-            let refresh_minutes = state.config.auto_refresh_interval;
+            let refresh_minutes = state.borrow().config.auto_refresh_interval;
             if refresh_minutes > 0
                 && last_refresh.elapsed() >= Duration::from_secs(u64::from(refresh_minutes) * 60)
             {
                 last_refresh = Instant::now();
-                if state.reload().is_ok() {
-                    refresh_models(&ui, &state);
-                }
+                start_async_scan(&ui, &state, &scan_sender, "Automaticky obnoveno");
             }
+            let state = state.borrow();
             let notification_minutes = state.config.notifications.interval_minutes;
             if state.config.notifications.enabled
                 && notification_minutes > 0
