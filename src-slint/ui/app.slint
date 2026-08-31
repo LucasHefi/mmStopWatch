@@ -244,6 +244,30 @@ component TimerCard inherits Rectangle {
     }
 }
 
+component TimerTableRow inherits Rectangle {
+    in property <TimerRow> timer;
+    callback toggle;
+    callback save;
+    callback discard;
+    height: 66px;
+    border-radius: 10px;
+    background: #18181bd9;
+    border-width: 1px;
+    border-color: timer.running ? timer.color : #ffffff0b;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 10px;
+        Rectangle { width: 3px; height: 38px; border-radius: 2px; background: root.timer.color; }
+        Text { horizontal-stretch: 1; text: root.timer.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; }
+        Text { width: 72px; text: root.timer.estimate-minutes > 0 ? root.timer.estimate-minutes + " min" : "—"; color: #71717a; font-size: 10px; vertical-alignment: center; }
+        Text { width: 136px; text: root.timer.elapsed; color: #fafafa; font-size: 17px; font-weight: 700; vertical-alignment: center; }
+        RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
+        RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
+        SmallButton { width: 30px; label: "×"; danger: true; clicked => root.discard(); }
+    }
+}
+
 component OverlayLayer inherits Rectangle {
     in-out property <bool> onboarding-visible;
     in-out property <bool> settings-open;
@@ -256,6 +280,7 @@ component OverlayLayer inherits Rectangle {
     in-out property <string> settings-daily-goal;
     in-out property <string> settings-auto-refresh;
     in-out property <bool> settings-notifications;
+    in-out property <string> settings-notification-interval;
     in-out property <bool> new-note-open;
     in-out property <string> new-note-filename;
     in-out property <string> new-note-time;
@@ -344,6 +369,8 @@ component OverlayLayer inherits Rectangle {
                             active: root.settings-notifications;
                             clicked => { root.settings-notifications = !root.settings-notifications; }
                         }
+                        Text { text: "Interval připomenutí v minutách (0 = nikdy)"; color: #a1a1aa; font-size: 10px; }
+                        LineEdit { text <=> root.settings-notification-interval; placeholder-text: "60"; }
                         Rectangle { vertical-stretch: 1; }
                     }
 
@@ -513,6 +540,8 @@ export component AppWindow inherits Window {
     in property <string> status-message: "Vyberte složku s Markdown poznámkami.";
     in property <bool> status-error: false;
     in property <int> timer-count: 0;
+    in-out property <bool> table-view: false;
+    in-out property <int> layout-columns: 1;
     in property <int> note-count: 0;
     in property <string> total-duration: "00:00:00";
     in-out property <bool> onboarding-visible: false;
@@ -526,6 +555,7 @@ export component AppWindow inherits Window {
     in-out property <string> settings-daily-goal: "8.0";
     in-out property <string> settings-auto-refresh: "10";
     in-out property <bool> settings-notifications: true;
+    in-out property <string> settings-notification-interval: "60";
     in-out property <bool> new-note-open: false;
     in-out property <string> new-note-filename: "";
     in-out property <string> new-note-time: "";
@@ -554,8 +584,11 @@ export component AppWindow inherits Window {
     callback save-timer(int);
     callback discard-timer(int);
     callback set-timer-estimate(int, int);
+    callback set-timer-view(bool);
+    callback set-layout-columns(int);
     callback toggle-pin(int);
     callback open-stats;
+    callback export-report(bool);
     callback open-settings;
     callback save-settings;
     callback create-note;
@@ -605,12 +638,12 @@ export component AppWindow inherits Window {
                     height: 30px;
                     spacing: 5px;
                     Rectangle { horizontal-stretch: 1; }
-                    SmallButton { width: 31px; label: "☷"; active: true; }
-                    SmallButton { width: 31px; label: "▦"; }
-                    SmallButton { width: 31px; label: "1"; }
-                    SmallButton { width: 31px; label: "2"; }
-                    SmallButton { width: 31px; label: "3"; }
-                    SmallButton { width: 31px; label: "4"; }
+                    SmallButton { width: 31px; label: "☷"; active: !root.table-view; clicked => root.set-timer-view(false); }
+                    SmallButton { width: 31px; label: "▦"; active: root.table-view; clicked => root.set-timer-view(true); }
+                    SmallButton { width: 31px; label: "1"; active: root.layout-columns == 1; clicked => root.set-layout-columns(1); }
+                    SmallButton { width: 31px; label: "2"; active: root.layout-columns == 2; clicked => root.set-layout-columns(2); }
+                    SmallButton { width: 31px; label: "3"; active: root.layout-columns == 3; clicked => root.set-layout-columns(3); }
+                    SmallButton { width: 31px; label: "4"; active: root.layout-columns == 4; clicked => root.set-layout-columns(4); }
                 }
 
                 if root.timer-count == 0 : Rectangle {
@@ -624,7 +657,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if root.timer-count > 0 : ListView {
+                if root.timer-count > 0 && !root.table-view : ListView {
                     for timer[index] in root.timers : TimerCard {
                         timer: timer;
                         row-index: index;
@@ -632,6 +665,15 @@ export component AppWindow inherits Window {
                         save => root.save-timer(index);
                         discard => root.discard-timer(index);
                         set-estimate(minutes) => root.set-timer-estimate(index, minutes);
+                    }
+                }
+
+                if root.timer-count > 0 && root.table-view : ListView {
+                    for timer[index] in root.timers : TimerTableRow {
+                        timer: timer;
+                        toggle => root.toggle-timer(index);
+                        save => root.save-timer(index);
+                        discard => root.discard-timer(index);
                     }
                 }
 
@@ -805,6 +847,12 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+                HorizontalLayout {
+                    height: 32px;
+                    Rectangle { horizontal-stretch: 1; }
+                    SmallButton { width: 130px; label: "Týdenní report"; clicked => root.export-report(false); }
+                    SmallButton { width: 130px; label: "Měsíční report"; clicked => root.export-report(true); }
+                }
             }
         }
     }
@@ -821,6 +869,7 @@ export component AppWindow inherits Window {
         settings-daily-goal <=> root.settings-daily-goal;
         settings-auto-refresh <=> root.settings-auto-refresh;
         settings-notifications <=> root.settings-notifications;
+        settings-notification-interval <=> root.settings-notification-interval;
         new-note-open <=> root.new-note-open;
         new-note-filename <=> root.new-note-filename;
         new-note-time <=> root.new-note-time;

@@ -2,7 +2,7 @@
 
 Samostatná nativní varianta bez Reactu, DOM, WebView a JavaScript runtime. Čte stejné Markdown poznámky a zapisuje celkový čas do stejného frontmatter pole `Timework`.
 
-Aktuální refaktor používá rozložení původní aplikace: časovače vlevo a virtuální seznam poznámek vpravo. Zachovává animované ambientní pozadí, glow karet, setiny, odhady a průběh, ale vykresluje je přímo přes Slint software renderer. Umí převzít existující `.mmST-{nick}/config.json`, zapisuje kompatibilní `activity.json`, nabízí onboarding, nové poznámky, připnutí, základní statistiky a nativní nastavení. Při zavření s aktivními časovači vyžádá uložení nebo potvrzené zahození.
+Aktuální refaktor používá rozložení původní aplikace: časovače vlevo a virtuální seznam poznámek vpravo. Zachovává animované ambientní pozadí, glow karet, setiny, odhady a průběh, ale vykresluje je přímo přes Slint software renderer. Umí převzít existující `.mmST-{nick}/config.json`, zapisuje kompatibilní `activity.json`, nabízí onboarding, nové poznámky, připnutí, karty i tabulku, základní statistiky, reporty, připomenutí a nativní nastavení. Při zavření s aktivními časovači vyžádá uložení nebo potvrzené zahození.
 
 ## Spuštění
 

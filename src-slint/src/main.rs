@@ -1,6 +1,8 @@
 mod activity;
 mod app_state;
 mod config;
+mod notification;
+mod report;
 mod stats;
 mod storage;
 mod timer;
@@ -9,6 +11,8 @@ use activity::append_activity;
 use app_state::{AppState, COLORS, note_rows, refresh_models, set_status, timer_row};
 use chrono::Local;
 use config::AppConfig;
+use notification::show as show_notification;
+use report::save_report;
 use slint::{CloseRequestResponse, Model, ModelRc, Timer, TimerMode};
 use stats::snapshot as stats_snapshot;
 use std::{
@@ -17,7 +21,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     rc::Rc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use storage::{create_note, write_time_estimate, write_total_duration};
 use timer::NativeTimer;
@@ -45,6 +49,15 @@ fn sync_settings(ui: &AppWindow, config: &AppConfig) {
     ui.set_settings_daily_goal(format!("{:.1}", config.daily_goal_ms as f64 / 3_600_000.0).into());
     ui.set_settings_auto_refresh(config.auto_refresh_interval.to_string().into());
     ui.set_settings_notifications(config.notifications.enabled);
+    ui.set_settings_notification_interval(config.notifications.interval_minutes.to_string().into());
+    ui.set_table_view(config.timer_view_mode == "table");
+    let columns = config
+        .timer_layout
+        .mode
+        .strip_prefix("grid-")
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(1);
+    ui.set_layout_columns(columns.clamp(1, 4));
 }
 
 fn valid_key(value: &str) -> bool {
@@ -143,6 +156,47 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     refresh_models(&ui, &state.borrow());
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_set_timer_view(move |table| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            state.config.timer_view_mode = if table { "table" } else { "cards" }.into();
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Režim zobrazení nelze uložit: {error}"), true);
+            }
+            ui.set_table_view(table);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_set_layout_columns(move |columns| {
+            let Some(ui) = weak.upgrade() else { return };
+            let columns = columns.clamp(1, 4);
+            let mut state = state.borrow_mut();
+            state.config.timer_layout.mode = if columns == 1 {
+                "list".into()
+            } else {
+                format!("grid-{columns}")
+            };
+            if let Err(error) = state
+                .config
+                .save()
+                .and_then(|()| state.config.save_profile())
+            {
+                set_status(&ui, format!("Rozložení nelze uložit: {error}"), true);
+            }
+            ui.set_layout_columns(columns);
+        });
+    }
 
     {
         let weak = ui.as_weak();
@@ -257,6 +311,12 @@ fn main() -> Result<(), slint::PlatformError> {
             state.config.daily_goal_ms = (goal_hours * 3_600_000.0) as u64;
             state.config.auto_refresh_interval = refresh;
             state.config.notifications.enabled = ui.get_settings_notifications();
+            state.config.notifications.interval_minutes = ui
+                .get_settings_notification_interval()
+                .trim()
+                .parse::<u32>()
+                .unwrap_or(60)
+                .min(1_440);
             if let Err(error) = state
                 .config
                 .save()
@@ -306,6 +366,23 @@ fn main() -> Result<(), slint::PlatformError> {
                     .collect::<Vec<_>>(),
             )));
             ui.set_stats_open(true);
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        ui.on_export_report(move |monthly| {
+            let Some(ui) = weak.upgrade() else { return };
+            let state = state.borrow();
+            match save_report(&state.config, &state.notes, if monthly { 30 } else { 7 }) {
+                Ok(path) => set_status(
+                    &ui,
+                    format!("Report byl uložen do {}", path.to_string_lossy()),
+                    false,
+                ),
+                Err(error) => set_status(&ui, format!("Report nelze uložit: {error}"), true),
+            }
         });
     }
 
@@ -552,12 +629,28 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        let mut expiration_frame = 0_u8;
+        let mut alerted = std::collections::HashSet::new();
         timer_tick.start(TimerMode::Repeated, Duration::from_millis(50), move || {
             let Some(_ui) = weak.upgrade() else { return };
             let state = state.borrow();
             for (index, timer) in state.timers.iter().enumerate() {
                 if timer.is_running() {
                     state.timer_model.set_row_data(index, timer_row(timer));
+                }
+            }
+            expiration_frame = (expiration_frame + 1) % 20;
+            if expiration_frame == 0 {
+                for timer in state.timers.iter().filter(|timer| timer.is_running()) {
+                    let expired = timer.time_estimate_minutes.is_some_and(|minutes| {
+                        timer.current_elapsed_ms() >= minutes.saturating_mul(60_000)
+                    });
+                    if expired && alerted.insert(timer.note_path.clone()) {
+                        show_notification(
+                            "Časový limit dosažen",
+                            &format!("Odhad pro „{}“ byl vyčerpán.", timer.name),
+                        );
+                    }
                 }
             }
         });
@@ -592,6 +685,37 @@ fn main() -> Result<(), slint::PlatformError> {
             let state = state.borrow();
             if state.timers.iter().any(NativeTimer::is_running) {
                 state.checkpoint_timers();
+            }
+        });
+    }
+
+    let maintenance_tick = Timer::default();
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        let mut last_refresh = Instant::now();
+        let mut last_notification = Instant::now();
+        maintenance_tick.start(TimerMode::Repeated, Duration::from_secs(30), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut state = state.borrow_mut();
+            let refresh_minutes = state.config.auto_refresh_interval;
+            if refresh_minutes > 0
+                && last_refresh.elapsed() >= Duration::from_secs(u64::from(refresh_minutes) * 60)
+            {
+                last_refresh = Instant::now();
+                if state.reload().is_ok() {
+                    refresh_models(&ui, &state);
+                }
+            }
+            let notification_minutes = state.config.notifications.interval_minutes;
+            if state.config.notifications.enabled
+                && notification_minutes > 0
+                && state.timers.iter().any(NativeTimer::is_running)
+                && last_notification.elapsed()
+                    >= Duration::from_secs(u64::from(notification_minutes) * 60)
+            {
+                last_notification = Instant::now();
+                show_notification("mmStopWatch běží", "Měření času stále pokračuje na pozadí.");
             }
         });
     }
