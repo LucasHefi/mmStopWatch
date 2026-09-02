@@ -845,8 +845,9 @@ component NoteCard inherits Rectangle {
             }
             HorizontalLayout {
                 height: 21px;
+                spacing: 8px;
                 Text { text: root.note.name; color: #f4f4f5; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
-                Text { text: root.note.active ? "▶  " + root.note.duration : root.note.duration; color: root.note.active ? root.note.accent : #d4d4d8; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                Text { width: 88px; text: root.note.active ? "▶  " + root.note.duration : root.note.duration; color: root.note.active ? root.note.accent : #d4d4d8; font-size: 12px; font-weight: 600; horizontal-alignment: right; vertical-alignment: center; }
             }
             HorizontalLayout {
                 height: 24px;
