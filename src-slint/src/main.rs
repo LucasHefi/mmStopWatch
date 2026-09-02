@@ -1825,7 +1825,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let mut frame_intervals = Vec::with_capacity(frame_count.saturating_sub(1));
         let mut previous_frame = Instant::now();
         let benchmark_started = previous_frame;
-        let max_scroll = ((note_count as f32 * 112.0) - 440.0).max(0.0);
+        let max_scroll = ((note_count as f32 * 98.0) - 440.0).max(0.0);
         let last_sidebar_scroll = last_sidebar_scroll.clone();
         scroll_benchmark_tick.start(
             TimerMode::Repeated,

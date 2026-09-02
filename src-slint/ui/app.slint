@@ -813,13 +813,13 @@ component NoteCard inherits Rectangle {
     callback preview;
     callback edit;
     callback obsidian;
-    height: 112px;
+    height: 98px;
     background: transparent;
     cache-rendering-hint: true;
 
     card := Rectangle {
         width: parent.width;
-        height: 104px;
+        height: 90px;
         border-radius: 12px;
         background: !root.scrolling && touch.has-hover ? #29292ed9 : root.note.active ? #202327f0 : root.note.pinned ? #202024e8 : #18181bd9;
         border-width: 1px;
