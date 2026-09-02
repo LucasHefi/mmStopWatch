@@ -5,6 +5,7 @@ crate_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$crate_root/Cargo.toml" | head -n 1)"
 architecture="${MMSTOPWATCH_DEB_ARCH:-amd64}"
 output_dir="${MMSTOPWATCH_PACKAGE_DIR:-$crate_root/target/packages}"
+package_name="mmstopwatch-native_${version}_${architecture}.deb"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
@@ -17,5 +18,8 @@ install -Dm644 "$crate_root/../src-tauri/icons/128x128.png" "$stage/usr/share/ic
 mkdir -p "$stage/DEBIAN" "$output_dir"
 sed -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$architecture/g" \
   "$crate_root/packaging/linux/control.template" > "$stage/DEBIAN/control"
-dpkg-deb --root-owner-group --build "$stage" "$output_dir/mmstopwatch-native_${version}_${architecture}.deb"
-sha256sum "$output_dir/mmstopwatch-native_${version}_${architecture}.deb" > "$output_dir/SHA256SUMS-linux.txt"
+dpkg-deb --root-owner-group --build "$stage" "$output_dir/$package_name"
+(
+  cd "$output_dir"
+  sha256sum "$package_name" > SHA256SUMS-linux.txt
+)
