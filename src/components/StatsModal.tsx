@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTranslation } from '../i18n/useTranslation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -50,7 +50,7 @@ export default function StatsModal({ onClose }: { onClose: () => void }) {
   }, [selectedNick, mdConfig.notesFolder, currentNick])
 
   const entries = nickEntries
-  const stats = computeStats(sessions, period, entries)
+  const stats = useMemo(() => computeStats(sessions, period, entries), [sessions, period, entries])
   const dailyGoal = resolveDailyGoalMs(mdConfig.dailyGoalMs)
 
   const handleExport = async () => {

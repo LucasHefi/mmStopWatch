@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_fs::FsExt;
 
 fn validate_profile_key(value: &str) -> Result<String, String> {
@@ -67,6 +67,25 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
+            #[cfg(target_os = "linux")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                main_window.with_webview(|webview| {
+                    use webkit2gtk::{SettingsExt, WebViewExt};
+
+                    if let Some(settings) = webview.inner().settings() {
+                        settings.set_enable_encrypted_media(false);
+                        settings.set_enable_html5_database(false);
+                        settings.set_enable_media_capabilities(false);
+                        settings.set_enable_media_stream(false);
+                        settings.set_enable_mediasource(false);
+                        settings.set_enable_offline_web_application_cache(false);
+                        settings.set_enable_page_cache(false);
+                        settings.set_enable_webaudio(false);
+                        settings.set_enable_webgl(false);
+                    }
+                })?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![authorize_folder])

@@ -2,7 +2,7 @@
 
 > Stav: implementační plán uložený před zahájením migrace.
 > Datum: 2026-08-09
-> Výchozí verze: 1.7.0-rc.3
+> Výchozí verze: 1.7.0-rc.5
 > Cíl: stabilní, bezpečná a profesionální local-first desktopová aplikace pro time tracking nad Markdown/Obsidian vaultem.
 
 ## 1. Produktová vize

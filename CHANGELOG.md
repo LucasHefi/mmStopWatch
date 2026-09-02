@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased — 2.0 hardening
+## [1.7.0-rc.5] - 2026-08-30
+
+### Fixed
+- Debian launcher now invokes `/usr/bin/mmstopwatch` explicitly, preventing an older executable earlier in `PATH` from being started
+
+## [1.7.0-rc.4] - 2026-08-29
+
+This release candidate contains the 2.0 hardening work previously tracked as unreleased.
+
 ### Added
 - Native signed Tauri updater flow with release checks from Settings and restart after installation
 - React-free TimerEngine adapter with monotonic work/pause segments and one visibility-aware central ticker

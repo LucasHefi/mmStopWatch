@@ -31,6 +31,29 @@ Ruční kontrola aktualizace přijímá pouze validní JSON manifest s novějš�
 
 Nativní varianta používá softwarový renderer, virtuální seznam poznámek a omezenou frekvenci dekorativní animace. Plynulý 50ms tick aktualizuje pouze řádky časomír, které skutečně běží; monotónní hodiny proto zůstávají přesné nezávisle na rychlosti vykreslování. Rozpracované časomíry se každých pět sekund checkpointují a po restartu se bezpečně obnoví v pauze.
 
+## Databázový index velkých vaultů
+
+Markdown soubory zůstávají jediným zdrojem pravdy. Aplikace nad nimi udržuje obnovitelnou SQLite projekci v lokální datové složce aplikace, nikdy uvnitř synchronizovaného vaultu. Index ukládá podpis souboru, čas, tagy, vybraná frontmatter pole a krátké preview. Změna parserových klíčů cache automaticky invaliduje; poškozená databáze se odloží s příponou `corrupt-*` a znovu sestaví z Markdownu.
+
+Rekurzivní filesystem watcher slučuje události po dobu 300 ms. Vytvoření, změna, smazání nebo přejmenování poznámky aktualizuje pouze dotčené cesty. Nejednoznačná adresářová událost vyvolá úplnou reconciliation a nastavený interval automatického obnovení zůstává jako fallback pro síťové disky nebo ztracené watcher události. Stavová lišta po aktualizaci ukazuje počet cache hitů, změn a dobu indexování.
+
+Ruční výkonový test lze spustit pro 20 000 až 50 000 souborů:
+
+```bash
+MMSTOPWATCH_PERF_NOTES=50000 cargo test --manifest-path src-slint/Cargo.toml \
+  persistent_index_large_vault_performance_fixture -- --ignored --nocapture
+```
+
+Skutečný scroll pravého panelu lze změřit v release buildu nad syntetickým modelem. Benchmark projede seznam dolů a zpět v 180 krocích a vypíše celkový čas i medián, p95, p99 a maximum intervalu mezi snímky. Během aktivního scrollu se ambientní pozadí na okamžik pozastaví, aby softwarový renderer věnoval rozpočet vstupu a seznamu:
+
+```bash
+MMSTOPWATCH_SCROLL_BENCHMARK=50000 cargo run --manifest-path src-slint/Cargo.toml --release
+```
+
+Model poznámek je stabilní `VecModel`: další stránka přidá jen 48 nových řádků a během scroll události se již nekopírují ani znovu nenastavují všechny dříve načtené položky. `ListView` vytváří pouze viditelné delegáty.
+
+Stejná databáze obsahuje verzovanou analytickou projekci `activity.json`, oddělenou podle profilu. JSON zůstává přenositelným a synchronizovatelným zdrojem pravdy; po prvním spuštění i po externí změně se projekce transakčně obnoví. Souhrnné statistiky (`COUNT`, součet, průměr, maximum a časový rozsah) a reporty omezené datem se dotazují přímo přes indexované SQL. Když lokální databáze selže, čtení se vrátí k JSON a další úspěšné otevření projekci opraví.
+
 ## Naměřená release spotřeba
 
 Měřeno na Linuxu s 44 načtenými Markdown soubory pomocí údajů procesu a `/proc/<pid>/smaps_rollup`:

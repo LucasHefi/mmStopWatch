@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Play, Pause, Save, X, Timer, Pencil, Check, AlertCircle, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
@@ -12,7 +13,7 @@ interface SecondaryTimerCardProps {
   dragHandle?: boolean
 }
 
-export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimerCardProps) {
+function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimerCardProps) {
   const { t } = useTranslation()
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging
@@ -22,7 +23,7 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
     currentTimer, timeRef, addedTimeRef, editInputRef,
     editing, editValue, setEditValue, progress, setShowOverlay,
     openEditor, saveEdit, applyPreset, removeEstimate,
-    noteColor, isRunning, isSaving, shouldShowOverlay, timeEstimate,
+    noteColor, isSaving, shouldShowOverlay, timeEstimate,
     remainingMinInt, remainingSec, isExpired, barColor, PRESETS, mdConfig,
     handleDiscard, handlePlayPause, handleSave,
     setEditing,
@@ -48,7 +49,7 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ y: -4, boxShadow: '0 25px 30px -5px rgb(0 0 0 / 0.25), 0 10px 15px -6px rgb(0 0 0 / 0.2)' }}
-      className="border rounded-2xl px-7 py-6 backdrop-blur-2xl relative overflow-visible"
+      className="border rounded-2xl px-7 py-6 relative overflow-visible"
     >
       <div className="absolute inset-0 bg-white/5 opacity-0 hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
       <div className="flex justify-between items-center mb-1 relative z-10">
@@ -105,11 +106,9 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
           )}
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-zinc-700 rounded-full h-1.5 overflow-hidden">
-              <motion.div
+              <div
                 className={`h-1.5 rounded-full ${barColor}`}
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.5 }}
+                style={{ width: `${progress}%`, transition: 'width 260ms linear' }}
               />
             </div>
           </div>
@@ -179,20 +178,15 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
       )}
       <div className="flex items-center justify-between gap-4 relative z-10">
         <div className="flex flex-col">
-          <motion.div
-            animate={isRunning ? {
-              scale: isExpired ? [1, 1.01, 1] : [1, 1.002, 1],
-              opacity: isExpired ? [1, 0.8, 1] : 1
-            } : {}}
-            transition={{ duration: isExpired ? 0.8 : 1.2, repeat: isRunning ? Infinity : 0 }}
+          <div
             className={`font-mono text-5xl tabular-nums tracking-[-2.5px] min-w-[188px] ${
-              isExpired ? 'text-red-400' : 'text-white/95'
+              isExpired ? 'timer-display-expired text-red-400' : 'text-white/95'
             }`}
             style={{ textShadow: isExpired ? '0 0 20px rgba(239,68,68,0.6)' : `0 2px 4px rgba(0,0,0,0.4), 0 0 16px ${noteColor}88` }}
             ref={timeRef}
           >
             00:00:00.00
-          </motion.div>
+          </div>
           <div
             className="font-mono text-xs font-medium tabular-nums mt-0.5 tracking-wider"
             style={{ color: noteColor, textShadow: `0 0 8px ${noteColor}88` }}
@@ -235,3 +229,5 @@ export default function SecondaryTimerCard({ timer, dragHandle }: SecondaryTimer
     </motion.div>
   )
 }
+
+export default memo(SecondaryTimerCard)

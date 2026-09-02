@@ -8,6 +8,8 @@ import { sendOsNotification } from '../core/notificationManager'
 
 // Track which timers already got expiration alert (per session)
 const alertedTimers = new Set<string>()
+const expirationListeners = new Map<string, Set<() => void>>()
+let expirationInterval: number | null = null
 
 let audioElement: HTMLAudioElement | null = null
 
@@ -56,69 +58,77 @@ async function sendExpirationNotification(timerName: string) {
   await sendOsNotification('mmStopWatch', translate('limitExpired', lang).replace('{name}', timerName))
 }
 
-export function useTimerExpiration(timer: TimerInstance, onExpired?: () => void) {
-  const hasAlertedRef = useRef(false)
-  const configRef = useRef(useSessionStore.getState().mdConfig)
+function checkExpirations(): void {
+  if (expirationListeners.size === 0) return
 
-  useEffect(() => {
-    const unsub = useSessionStore.subscribe((state) => {
-      configRef.current = state.mdConfig
-    })
-    configRef.current = useSessionStore.getState().mdConfig
-    return () => unsub()
-  }, [])
+  const mdConfig = useSessionStore.getState().mdConfig
+  const timers = useTimersStore.getState().timers
+  const timersById = new Map(timers.map(timer => [timer.id, timer]))
 
-  useEffect(() => {
-    if (!timer.timeEstimate || timer.status !== 'RUNNING') return
-
-    const checkExpiration = () => {
-      const currentTimer = useTimersStore.getState().timers.find(t => t.id === timer.id)
-      if (!currentTimer) return
-
-      const now = performance.now()
-      const elapsed = currentTimer.pausedOffset + (currentTimer.status === 'RUNNING' ? now - currentTimer.startTime : 0)
-      const limitMs = currentTimer.timeEstimate! * 60000
-      const config = configRef.current
-
-      // Check if limit exceeded
-      if (elapsed >= limitMs && !hasAlertedRef.current) {
-        const alertConfig = config.timerLimitAlert
-        if (alertConfig?.enabled) {
-          hasAlertedRef.current = true
-          alertedTimers.add(timer.id)
-
-          // Play sound if enabled
-          if (alertConfig.soundEnabled && alertConfig.soundPath) {
-            playSound(alertConfig.soundPath)
-          }
-
-          // Send notification if enabled
-          if (alertConfig.notificationsEnabled) {
-            sendExpirationNotification(currentTimer.name)
-          }
-
-          // Trigger overlay callback
-          if (onExpired) {
-            onExpired()
-          }
-        }
-      }
-
-      // Reset alert flag when timer stops/pauses
-      if (currentTimer.status !== 'RUNNING') {
-        hasAlertedRef.current = false
-      }
+  for (const [timerId, callbacks] of expirationListeners) {
+    const currentTimer = timersById.get(timerId)
+    if (!currentTimer || currentTimer.status !== 'RUNNING' || !currentTimer.timeEstimate) {
+      alertedTimers.delete(timerId)
+      continue
     }
 
-    const interval = setInterval(checkExpiration, 1000)
-    return () => clearInterval(interval)
-  }, [timer.id, timer.timeEstimate, timer.status])
+    const now = performance.now()
+    const elapsed = currentTimer.pausedOffset + Math.max(0, now - currentTimer.startTime)
+    const limitMs = currentTimer.timeEstimate * 60000
+    if (elapsed < limitMs || alertedTimers.has(timerId)) continue
+
+    const alertConfig = mdConfig.timerLimitAlert
+    if (!alertConfig?.enabled) continue
+
+    alertedTimers.add(timerId)
+    if (alertConfig.soundEnabled && alertConfig.soundPath) void playSound(alertConfig.soundPath)
+    if (alertConfig.notificationsEnabled) void sendExpirationNotification(currentTimer.name)
+    for (const callback of callbacks) callback()
+  }
+}
+
+function startExpirationMonitor(): void {
+  if (expirationInterval !== null) return
+  expirationInterval = window.setInterval(checkExpirations, 1000)
+}
+
+function stopExpirationMonitor(): void {
+  if (expirationInterval === null) return
+  window.clearInterval(expirationInterval)
+  expirationInterval = null
+}
+
+function subscribeToExpiration(timerId: string, callback: () => void): () => void {
+  const callbacks = expirationListeners.get(timerId) || new Set<() => void>()
+  callbacks.add(callback)
+  expirationListeners.set(timerId, callbacks)
+  startExpirationMonitor()
+  return () => {
+    const currentCallbacks = expirationListeners.get(timerId)
+    currentCallbacks?.delete(callback)
+    if (currentCallbacks?.size === 0) expirationListeners.delete(timerId)
+    if (!expirationListeners.size) {
+      alertedTimers.clear()
+      stopExpirationMonitor()
+    }
+  }
+}
+
+export function useTimerExpiration(timer: TimerInstance, onExpired?: () => void) {
+  const callbackRef = useRef(onExpired)
+  callbackRef.current = onExpired
+
+  useEffect(() => {
+    if (timer.status !== 'RUNNING' || !timer.timeEstimate) {
+      alertedTimers.delete(timer.id)
+      return
+    }
+    return subscribeToExpiration(timer.id, () => callbackRef.current?.())
+  }, [timer.id, timer.status, timer.timeEstimate])
 
   // Cleanup alertedTimers when timer is removed or stops
   useEffect(() => {
-    if (timer.status !== 'RUNNING' && !timer.timeEstimate) {
-      alertedTimers.delete(timer.id)
-    }
+    if (timer.status !== 'RUNNING') alertedTimers.delete(timer.id)
   }, [timer.id, timer.status, timer.timeEstimate])
 }
 

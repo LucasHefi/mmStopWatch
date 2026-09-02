@@ -2,11 +2,14 @@ use crate::{
     AppWindow, NoteRow, TimerGridRow, TimerRow,
     config::{AppConfig, TimerCheckpoint, load_timer_checkpoints, save_timer_checkpoints},
     i18n,
-    storage::{Note, NoteIndex, NoteScan, format_stopwatch, format_time},
+    storage::{IndexMetrics, Note, NoteIndex, NoteScan, format_stopwatch, format_time},
     timer::NativeTimer,
 };
-use slint::{Model, ModelRc, SharedString, VecModel};
+use slint::{Model, SharedString, VecModel};
 use std::{path::PathBuf, rc::Rc};
+
+#[cfg(test)]
+use slint::ModelRc;
 
 pub const COLORS: [u32; 8] = [
     0x34d399, 0x38bdf8, 0xa78bfa, 0xfbbf24, 0xfb7185, 0x2dd4bf, 0x818cf8, 0xa3e635,
@@ -23,12 +26,15 @@ pub struct AppState {
     pub visible_notes: Vec<usize>,
     pub loaded_note_count: usize,
     pub timers: Vec<NativeTimer>,
+    pub note_model: Rc<VecModel<NoteRow>>,
     pub timer_model: Rc<VecModel<TimerRow>>,
     pub timer_grid_model: Rc<VecModel<TimerGridRow>>,
     pub search: String,
     pub scan_warnings: Vec<String>,
     pub note_index: NoteIndex,
     pub index_cache_hits: usize,
+    pub index_metrics: IndexMetrics,
+    pub index_revision: u64,
     pub scan_in_progress: bool,
     diagnostics: bool,
 }
@@ -41,12 +47,15 @@ impl AppState {
             visible_notes: Vec::new(),
             loaded_note_count: NOTE_PAGE_SIZE,
             timers: Vec::new(),
+            note_model: Rc::new(VecModel::default()),
             timer_model: Rc::new(VecModel::default()),
             timer_grid_model: Rc::new(VecModel::default()),
             search: String::new(),
             scan_warnings: Vec::new(),
             note_index: NoteIndex::default(),
             index_cache_hits: 0,
+            index_metrics: IndexMetrics::default(),
+            index_revision: 0,
             scan_in_progress: false,
             diagnostics,
         }
@@ -68,6 +77,8 @@ impl AppState {
             )
             .map_err(|error| error.to_string())?;
         self.index_cache_hits = self.note_index.cache_hits();
+        self.index_metrics = self.note_index.metrics();
+        self.index_revision = self.note_index.revision();
         self.apply_note_scan(scan);
         Ok(self.notes.len())
     }
@@ -104,6 +115,7 @@ impl AppState {
             )
         });
         self.loaded_note_count = NOTE_PAGE_SIZE.min(self.visible_notes.len());
+        self.rebuild_note_rows();
     }
 
     pub fn load_more_notes(&mut self) -> bool {
@@ -112,11 +124,53 @@ impl AppState {
             .loaded_note_count
             .saturating_add(NOTE_PAGE_SIZE)
             .min(self.visible_notes.len());
+        for position in previous..self.loaded_note_count {
+            if let Some(row) = self.note_row(position) {
+                self.note_model.push(row);
+            }
+        }
         self.loaded_note_count != previous
     }
 
     pub fn has_more_notes(&self) -> bool {
         self.loaded_note_count < self.visible_notes.len()
+    }
+
+    pub fn rebuild_note_rows(&self) {
+        self.note_model.set_vec(
+            (0..self.loaded_note_count)
+                .filter_map(|position| self.note_row(position))
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    fn note_row(&self, position: usize) -> Option<NoteRow> {
+        let note = self.notes.get(*self.visible_notes.get(position)?)?;
+        Some(NoteRow {
+            name: note.name.clone().into(),
+            path: note.path.to_string_lossy().into_owned().into(),
+            relative_path: note.relative_path.clone().into(),
+            duration: format_time(note.duration_ms).into(),
+            // Preview remains in the Rust index and is fetched only on demand.
+            preview: "".into(),
+            tags: note
+                .tags
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("  ")
+                .into(),
+            pinned: self
+                .config
+                .pinned_notes
+                .iter()
+                .any(|path| path == &note.path.to_string_lossy()),
+            active: self
+                .timers
+                .iter()
+                .any(|timer| timer.note_path == note.path.to_string_lossy()),
+        })
     }
 
     pub fn restore_timers(&mut self) {
@@ -226,43 +280,9 @@ impl AppState {
     }
 }
 
+#[cfg(test)]
 pub fn note_rows(state: &AppState) -> ModelRc<NoteRow> {
-    let rows = state
-        .visible_notes
-        .iter()
-        .take(state.loaded_note_count)
-        .map(|index| {
-            let note = &state.notes[*index];
-            NoteRow {
-                name: note.name.clone().into(),
-                path: note.path.to_string_lossy().into_owned().into(),
-                relative_path: note.relative_path.clone().into(),
-                duration: format_time(note.duration_ms).into(),
-                // The sidebar intentionally carries summaries only. Preview
-                // text remains in the Rust index and is fetched when the user
-                // opens the preview dialog.
-                preview: "".into(),
-                tags: note
-                    .tags
-                    .iter()
-                    .take(3)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("  ")
-                    .into(),
-                pinned: state
-                    .config
-                    .pinned_notes
-                    .iter()
-                    .any(|path| path == &note.path.to_string_lossy()),
-                active: state
-                    .timers
-                    .iter()
-                    .any(|timer| timer.note_path == note.path.to_string_lossy()),
-            }
-        })
-        .collect::<Vec<_>>();
-    ModelRc::new(VecModel::from(rows))
+    ModelRc::from(state.note_model.clone())
 }
 
 pub fn timer_row(timer: &NativeTimer, language: &str) -> TimerRow {
@@ -299,7 +319,6 @@ pub fn timer_row(timer: &NativeTimer, language: &str) -> TimerRow {
 }
 
 pub fn refresh_note_model(ui: &AppWindow, state: &AppState) {
-    ui.set_notes(note_rows(state));
     ui.set_note_count(state.notes.len() as i32);
     ui.set_notes_loaded(state.loaded_note_count.min(state.visible_notes.len()) as i32);
     ui.set_filtered_note_count(state.visible_notes.len() as i32);
@@ -307,6 +326,7 @@ pub fn refresh_note_model(ui: &AppWindow, state: &AppState) {
 }
 
 pub fn refresh_models(ui: &AppWindow, state: &AppState) {
+    state.rebuild_note_rows();
     refresh_note_model(ui, state);
     state.timer_model.set_vec(
         state
@@ -426,11 +446,11 @@ mod tests {
     #[test]
     fn large_note_lists_are_exposed_to_the_ui_in_bounded_pages() {
         let mut state = AppState::new(AppConfig::default(), true);
-        state.notes = (0..125)
+        state.notes = (0..50_000)
             .map(|index| Note {
-                path: PathBuf::from(format!("note-{index:03}.md")),
-                name: format!("Note {index:03}"),
-                relative_path: format!("folder/note-{index:03}.md"),
+                path: PathBuf::from(format!("note-{index:05}.md")),
+                name: format!("Note {index:05}"),
+                relative_path: format!("folder/note-{index:05}.md"),
                 duration_ms: 0,
                 preview: "Preview stays in the Rust index".into(),
                 tags: vec!["test".into()],
@@ -441,13 +461,14 @@ mod tests {
         state.apply_filter();
 
         assert_eq!(state.loaded_note_count, NOTE_PAGE_SIZE);
-        assert_eq!(note_rows(&state).row_count(), NOTE_PAGE_SIZE);
+        assert_eq!(state.visible_notes.len(), 50_000);
+        let model = note_rows(&state);
+        assert_eq!(model.row_count(), NOTE_PAGE_SIZE);
         assert!(state.has_more_notes());
         assert!(state.load_more_notes());
-        assert_eq!(note_rows(&state).row_count(), NOTE_PAGE_SIZE * 2);
+        assert_eq!(model.row_count(), NOTE_PAGE_SIZE * 2);
         assert!(state.load_more_notes());
-        assert_eq!(note_rows(&state).row_count(), 125);
-        assert!(!state.has_more_notes());
-        assert!(!state.load_more_notes());
+        assert_eq!(model.row_count(), NOTE_PAGE_SIZE * 3);
+        assert!(state.has_more_notes());
     }
 }

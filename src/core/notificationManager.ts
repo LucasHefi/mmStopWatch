@@ -31,6 +31,10 @@ export function resetPermissionCache(): void {
 export async function checkAndNotify() {
   const { mdConfig } = useSessionStore.getState()
   const { timers } = useTimersStore.getState()
+  const activeTimerIds = new Set(timers.map(timer => timer.id))
+  for (const timerId of lastNotifiedMap.keys()) {
+    if (!activeTimerIds.has(timerId)) lastNotifiedMap.delete(timerId)
+  }
   const notif = mdConfig.notifications
 
   if (!notif?.enabled || !notif.intervalMinutes) {

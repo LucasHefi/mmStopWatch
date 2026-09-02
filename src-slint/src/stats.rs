@@ -1,5 +1,5 @@
 use crate::{
-    activity::{ActivityEntry, load_activity},
+    activity::{ActivityEntry, activity_summary, load_activity},
     config::AppConfig,
     storage::Note,
 };
@@ -83,6 +83,11 @@ pub struct StatsSnapshot {
 pub fn snapshot(config: &AppConfig, notes: &[Note]) -> StatsSnapshot {
     let entries = load_activity(config);
     let mut snapshot = snapshot_from_entries(&entries, config.daily_goal_ms, Local::now());
+    let summary = activity_summary(config, None, None);
+    snapshot.total_ms = summary.total_ms;
+    snapshot.count = summary.count;
+    snapshot.average_ms = summary.average_ms;
+    snapshot.longest_ms = summary.longest_ms;
     snapshot.breakdown = field_breakdown(&entries, notes, &config.stats_field_keys);
     snapshot
 }

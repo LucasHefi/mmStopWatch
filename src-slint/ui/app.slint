@@ -84,6 +84,9 @@ export struct ProfileRow {
 
 component AmbientOrb inherits Rectangle {
     in property <color> glow-color;
+    // The gradient itself is static. Cache it so moving an orb only composites
+    // a small layer instead of recalculating a large radial gradient.
+    cache-rendering-hint: true;
     border-radius: self.width / 2;
     background: @radial-gradient(
         circle,
@@ -92,8 +95,6 @@ component AmbientOrb inherits Rectangle {
         glow-color.with-alpha(0.014) 62%,
         transparent 78%
     );
-    animate x { duration: 700ms; easing: ease-in-out; }
-    animate y { duration: 700ms; easing: ease-in-out; }
 }
 
 component SmallButton inherits Rectangle {
@@ -805,6 +806,7 @@ component OverlayLayer inherits Rectangle {
 
 component NoteCard inherits Rectangle {
     in property <NoteRow> note;
+    in property <bool> scrolling: false;
     callback open;
     callback pin;
     callback preview;
@@ -812,7 +814,8 @@ component NoteCard inherits Rectangle {
     callback obsidian;
     height: 104px;
     border-radius: 12px;
-    background: touch.has-hover ? #29292ed9 : note.active ? #202327f0 : note.pinned ? #202024e8 : #18181bd9;
+    cache-rendering-hint: true;
+    background: !scrolling && touch.has-hover ? #29292ed9 : note.active ? #202327f0 : note.pinned ? #202024e8 : #18181bd9;
     border-width: 1px;
     border-color: note.active ? #64748b99 : #ffffff0d;
     clip: true;
@@ -922,6 +925,8 @@ export component AppWindow inherits Window {
     in property <int> filtered-note-count: 0;
     in property <bool> has-more-notes: false;
     in property <bool> notes-loading: false;
+    in-out property <length> notes-scroll-y: 0px;
+    in-out property <bool> sidebar-scrolling: false;
     in property <string> scan-warning: "";
     in property <string> total-duration: "00:00:00";
     in-out property <bool> onboarding-visible: false;
@@ -1042,34 +1047,7 @@ export component AppWindow inherits Window {
     callback check-update;
     callback install-update;
     callback load-more-notes;
-
-    for row in 10 : Rectangle {
-        background: transparent;
-        for column in 14 : Rectangle {
-            x: column * 58px + 22px;
-            y: row * 58px + 22px;
-            width: 1px;
-            height: 1px;
-            border-radius: 1px;
-            background: #ffffff;
-            opacity: 0.045;
-        }
-    }
-
-    AmbientOrb {
-        x: root.width * root.glow-a-x / 100 - 230px;
-        y: root.height * root.glow-a-y / 100 - 230px;
-        width: 460px;
-        height: 460px;
-        glow-color: #0ea5e9;
-    }
-    AmbientOrb {
-        x: root.width * root.glow-b-x / 100 - 260px;
-        y: root.height * root.glow-b-y / 100 - 260px;
-        width: 520px;
-        height: 520px;
-        glow-color: #8b5cf6;
-    }
+    callback sidebar-scrolled;
 
     HorizontalLayout {
         spacing: 0px;
@@ -1077,6 +1055,35 @@ export component AppWindow inherits Window {
         if !root.compact || !root.sidebar-open : Rectangle {
             horizontal-stretch: 1;
             background: #09090b88;
+            clip: true;
+
+            for row in 10 : Rectangle {
+                background: transparent;
+                for column in 14 : Rectangle {
+                    x: column * 58px + 22px;
+                    y: row * 58px + 22px;
+                    width: 1px;
+                    height: 1px;
+                    border-radius: 1px;
+                    background: #ffffff;
+                    opacity: 0.045;
+                }
+            }
+
+            AmbientOrb {
+                x: parent.width * root.glow-a-x / 100 - 230px;
+                y: parent.height * root.glow-a-y / 100 - 230px;
+                width: 460px;
+                height: 460px;
+                glow-color: #0ea5e9;
+            }
+            AmbientOrb {
+                x: parent.width * root.glow-b-x / 100 - 260px;
+                y: parent.height * root.glow-b-y / 100 - 260px;
+                width: 520px;
+                height: 520px;
+                glow-color: #8b5cf6;
+            }
 
             VerticalLayout {
                 padding: 24px;
@@ -1267,13 +1274,16 @@ export component AppWindow inherits Window {
                 }
 
                 if root.notes.length > 0 : notes-list := ListView {
+                    viewport-y <=> root.notes-scroll-y;
                     scrolled => {
+                        root.sidebar-scrolled();
                         if root.has-more-notes && -notes-list.viewport-y + notes-list.visible-height >= notes-list.viewport-height - 420px {
                             root.load-more-notes();
                         }
                     }
                     for note[index] in root.notes : NoteCard {
                         note: note;
+                        scrolling: root.sidebar-scrolling;
                         open => root.add-timer(index);
                         pin => root.toggle-pin(index);
                         preview => root.preview-note(index);

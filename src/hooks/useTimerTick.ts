@@ -3,11 +3,19 @@ import { useTimersStore, selectRunningTimers } from '../stores/timersStore'
 import type { TimerInstance } from '../stores/timersStore'
 
 type TickListener = (timers: TimerInstance[], now: number) => void
-const listeners = new Set<TickListener>()
+type TimerTickListener = (timer: TimerInstance | undefined, now: number) => void
+type ListenerEntry = {
+  timerId?: string
+  callback: TickListener | TimerTickListener
+}
+
+const listeners = new Set<ListenerEntry>()
 let frameId: number | null = null
 let intervalId: number | null = null
 let lastNow: number | null = null
+let lastFrameDispatch = 0
 const SLOW_TICK_MS = 1000
+const FRAME_INTERVAL_MS = 1000 / 30
 
 function requestNextTick(): void {
   if (listeners.size === 0) return
@@ -19,9 +27,21 @@ function runFrame(): void {
   frameId = null
   if (listeners.size === 0) return
   const now = performance.now()
+  if (now - lastFrameDispatch < FRAME_INTERVAL_MS) {
+    requestNextTick()
+    return
+  }
+  lastFrameDispatch = now
   lastNow = now
   const runningTimers = selectRunningTimers(useTimersStore.getState())
-  for (const listener of listeners) listener(runningTimers, now)
+  const runningById = new Map(runningTimers.map(timer => [timer.id, timer]))
+  for (const listener of listeners) {
+    if (listener.timerId) {
+      (listener.callback as TimerTickListener)(runningById.get(listener.timerId), now)
+    } else {
+      (listener.callback as TickListener)(runningTimers, now)
+    }
+  }
   requestNextTick()
 }
 
@@ -31,7 +51,14 @@ function runSlowTick(): void {
   const now = performance.now()
   lastNow = now
   const runningTimers = selectRunningTimers(useTimersStore.getState())
-  for (const listener of listeners) listener(runningTimers, now)
+  const runningById = new Map(runningTimers.map(timer => [timer.id, timer]))
+  for (const listener of listeners) {
+    if (listener.timerId) {
+      (listener.callback as TimerTickListener)(runningById.get(listener.timerId), now)
+    } else {
+      (listener.callback as TickListener)(runningTimers, now)
+    }
+  }
   requestNextTick()
 }
 
@@ -46,13 +73,25 @@ function stopTicker(): void {
   frameId = null
   intervalId = null
   lastNow = null
+  lastFrameDispatch = 0
 }
 
 function subscribeToTicker(listener: TickListener): () => void {
-  listeners.add(listener)
+  const entry = { callback: listener }
+  listeners.add(entry)
   startTicker()
   return () => {
-    listeners.delete(listener)
+    listeners.delete(entry)
+    if (listeners.size === 0) stopTicker()
+  }
+}
+
+function subscribeToTimer(timerId: string, listener: TimerTickListener): () => void {
+  const entry = { timerId, callback: listener }
+  listeners.add(entry)
+  startTicker()
+  return () => {
+    listeners.delete(entry)
     if (listeners.size === 0) stopTicker()
   }
 }
@@ -73,19 +112,29 @@ export function useTimerTick(onTick: (timers: TimerInstance[], now: number) => v
   useEffect(() => subscribeToTicker((timers, now) => callbackRef.current(timers, now)), [])
 }
 
-export function useTimerElapsed(timerId: string) {
+export function useTimerElapsed(timerId: string, onFrame?: (elapsed: number, timer: TimerInstance) => void) {
   const timer = useTimersStore(state => state.timers.find(item => item.id === timerId))
   const [elapsed, setElapsed] = useState(timer?.pausedOffset ?? 0)
+  const publishedBucketRef = useRef(Math.floor((timer?.pausedOffset ?? 0) / 250))
+  const frameCallbackRef = useRef(onFrame)
+  frameCallbackRef.current = onFrame
 
-  useTimerTick((runningTimers, now) => {
-    const currentTimer = runningTimers.find(item => item.id === timerId)
+  useEffect(() => subscribeToTimer(timerId, (currentTimer, now) => {
     if (!currentTimer) return
     const nextElapsed = currentTimer.pausedOffset + Math.max(0, now - currentTimer.startTime)
-    setElapsed(previous => previous === nextElapsed ? previous : nextElapsed)
-  })
+    frameCallbackRef.current?.(nextElapsed, currentTimer)
+    const nextBucket = Math.floor(nextElapsed / 250)
+    if (nextBucket !== publishedBucketRef.current) {
+      publishedBucketRef.current = nextBucket
+      setElapsed(nextElapsed)
+    }
+  }), [timerId])
 
   useEffect(() => {
-    if (timer && timer.status !== 'RUNNING') setElapsed(timer.pausedOffset)
+    if (timer && timer.status !== 'RUNNING') {
+      publishedBucketRef.current = Math.floor(timer.pausedOffset / 250)
+      setElapsed(timer.pausedOffset)
+    }
   }, [timer?.status, timer?.pausedOffset])
 
   return { timer, elapsed }

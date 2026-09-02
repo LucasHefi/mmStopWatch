@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from '../../i18n/useTranslation'
 import { formatMs, computeDailyTotals, computeTopDays, computeStreak, computeConsistency, computeWeeklyTrend } from '../../services/stats'
@@ -20,17 +20,17 @@ export default function StatsOverview({ sessions, entries, dailyGoal, period, on
   const { t } = useTranslation()
   const [hoveredBar, setHoveredBar] = useState<{ date: string; ms: number } | null>(null)
 
-  const dailyTotals = computeDailyTotals(sessions, 7, entries)
-  const topDays = computeTopDays(sessions, 5, entries)
+  const dailyTotals = useMemo(() => computeDailyTotals(sessions, 7, entries), [sessions, entries])
+  const topDays = useMemo(() => computeTopDays(sessions, 5, entries), [sessions, entries])
 
   const now = new Date()
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const todayTotal = dailyTotals.find(d => d.date === todayStr)?.ms || 0
   const goalProgress = dailyGoal > 0 ? Math.min((todayTotal / dailyGoal) * 100, 100) : 0
 
-  const streak = computeStreak(entries)
-  const consistency = computeConsistency(entries, 7, dailyGoal)
-  const weeklyTrend = computeWeeklyTrend(entries, dailyGoal)
+  const streak = useMemo(() => computeStreak(entries), [entries])
+  const consistency = useMemo(() => computeConsistency(entries, 7, dailyGoal), [entries, dailyGoal])
+  const weeklyTrend = useMemo(() => computeWeeklyTrend(entries, dailyGoal), [entries, dailyGoal])
 
   const trendIcon = weeklyTrend.delta > 0 ? <ArrowUp size={14} className="text-emerald-400" /> : weeklyTrend.delta < 0 ? <ArrowDown size={14} className="text-red-400" /> : null
   const periodLabels: Record<Period, string> = { day: t('today'), week: t('thisWeek'), month: t('thisMonth') }

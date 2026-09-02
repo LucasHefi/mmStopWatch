@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { checkAndNotify, resetNotificationCycle } from './core/notificationManager'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import pkg from '../package.json'
-import { openUrl } from '@tauri-apps/plugin-opener'
 import { useSessionStore, selectFilteredSessions, selectMdConfig } from './stores/sessionStore'
 import { useTimersStore, selectTimers } from './stores/timersStore'
 import { useShallow } from 'zustand/react/shallow'
-import { Play, Bookmark, BookOpen, Eye, ArrowLeftRight, BarChart3, RefreshCw, Settings, AlertTriangle, Pencil, X, Search, Menu } from 'lucide-react'
+import { ArrowLeftRight, BarChart3, RefreshCw, Settings, X, Search, Menu } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import SettingsModal from './components/SettingsModal'
 import EditModal from './components/EditModal'
@@ -19,12 +18,11 @@ import CloseGuardDialog from './components/CloseGuardDialog'
 import { BackgroundBeams } from './components/ui/BackgroundBeams'
 import PreviewModal from './components/PreviewModal'
 import RecoveryOverlay from './components/RecoveryOverlay'
+import VirtualSessionList from './components/VirtualSessionList'
 import { useRecoveryLifecycle } from './hooks/useRecoveryLifecycle'
 import { useTranslation } from './i18n/useTranslation'
-import { formatDuration } from './utils/time'
 import type { Session, LayoutMode } from './types/session'
 
-const gray = '#64748b'
 const SIDEBAR_BREAKPOINT = 800
 
 function App() {
@@ -42,7 +40,13 @@ function App() {
   const runningTimers = useMemo(() => timers.filter(t => t.status === 'RUNNING'), [timers])
   const runningTimersByNote = useMemo(() => new Map(runningTimers.map(timer => [timer.notePath, timer])), [runningTimers])
   const pinnedNotes = useMemo(() => new Set(mdConfig.pinnedNotes || []), [mdConfig.pinnedNotes])
-  const { refreshSessions, openNote, deletedSessions, undoDelete, togglePinNote, notesLoading, notesError } = useSessionStore()
+  const { refreshSessions, deletedSessions, undoDelete, notesLoading, notesError } = useSessionStore(useShallow(state => ({
+    refreshSessions: state.refreshSessions,
+    deletedSessions: state.deletedSessions,
+    undoDelete: state.undoDelete,
+    notesLoading: state.notesLoading,
+    notesError: state.notesError,
+  })))
   const { t } = useTranslation()
   useRecoveryLifecycle()
   const searchValue = useSessionStore(s => s.filters.search)
@@ -205,90 +209,13 @@ function App() {
           </button>
         )}
       </div>
-      <div className="space-y-2">
-        <AnimatePresence>
-        {filteredSessions.length === 0 && (
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} className="text-sm text-zinc-500 py-8 text-center">{t('noSessions')}</motion.div>
-        )}
-        {filteredSessions.map((s) => {
-          const runningTimer = runningTimersByNote.get(s.notePath || '')
-          const noteColor = runningTimer ? runningTimer.color : gray
-          const isRunning = !!runningTimer && runningTimer.status === 'RUNNING'
-          return (
-            <motion.div
-              key={s.id}
-              layout="position"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              whileHover={{ y: -2, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => openNote(s)}
-              style={{borderLeftColor: noteColor + 'b3', ...(isRunning ? { background: `radial-gradient(circle at 0% 50%, ${noteColor}33 0%, transparent 60%), #18181b` } : {})}}
-              className={`relative pl-3 pr-4 py-3 rounded-xl hover:bg-zinc-800/80 transition-all duration-200 min-w-0 cursor-pointer border-l-2 ${pinnedNotes.has(s.notePath || '') ? 'bg-zinc-800/60' : 'bg-zinc-900/60'} backdrop-blur-sm ${isRunning ? 'running-row' : ''}`}
-            >
-              {s.relativePath && (
-                <div className="text-[10px] text-zinc-500 mb-1 truncate">{s.relativePath}</div>
-              )}
-              <motion.button
-                type="button"
-                aria-label={pinnedNotes.has(s.notePath || '') ? t('unpinNote') : t('pinNote')}
-                whileTap={{ scale: 0.85, rotate: 15 }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  togglePinNote(s.notePath || '')
-                }}
-                className="absolute top-2 right-2 text-indigo-400 hover:text-indigo-300 transition-colors"
-                title={pinnedNotes.has(s.notePath || '') ? 'Unpin' : 'Pin'}
-              >
-                {pinnedNotes.has(s.notePath || '') ? <Bookmark size={14} className="fill-indigo-400" /> : <Bookmark size={14} />}
-              </motion.button>
-              {isRunning ? (
-                <div className="flex justify-between items-start min-w-0">
-                  <div className="min-w-0 flex items-center gap-1.5">
-                    <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ repeat: Infinity, duration: 2 }}><Play size={12} style={{color: noteColor + 'cc'}} /></motion.div>
-                    <div className="font-medium text-sm">{s.name}</div>
-                  </div>
-                  <div className="font-mono text-sm text-zinc-400 tabular-nums">{s.parseError ? <AlertTriangle size={12} className="text-amber-400" /> : formatDuration(s.duration_ms)}</div>
-                </div>
-              ) : (
-                <div className="flex justify-between items-start min-w-0">
-                  <div className="min-w-0 flex items-center gap-1.5">
-                    <div className="font-medium text-sm">{s.name}</div>
-                  </div>
-                  <div className="font-mono text-sm text-zinc-400 tabular-nums">{s.parseError ? <AlertTriangle size={12} className="text-amber-400" /> : formatDuration(s.duration_ms)}</div>
-                </div>
-              )}
-              {s.tags && s.tags.length > 0 && (
-                <div className="flex gap-1 mt-2">
-                  {s.tags.map(t => <span key={t} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 rounded">{t}</span>)}
-                </div>
-              )}
-              <div className="flex gap-2 mt-2 text-xs" onClick={e => e.stopPropagation()}>
-                <button type="button" onClick={() => setEditSession(s)} aria-label={`${t('edit')}: ${s.name}`} className="text-zinc-400 hover:text-white"><Pencil size={12} /></button>
-                {s.preview && <button type="button" onClick={() => setPreviewSession(s)} aria-label={`${t('preview')}: ${s.name}`} className="text-zinc-400 hover:text-white" title={t('preview')}><Eye size={12} /></button>}
-                {s.notePath && (
-                  <button
-                    type="button"
-                    aria-label={`${t('openInObsidian')}: ${s.name}`}
-                    onClick={async (e) => {
-                      e.stopPropagation()
-                      const vault = encodeURIComponent(mdConfig.obsidianVault || 'YourVaultName')
-                      const file = encodeURIComponent(s.relativePath || '')
-                      await openUrl(`obsidian://open?vault=${vault}&file=${file}`)
-                    }}
-                    className="text-zinc-400 hover:text-white"
-                    title={t('openInObsidian')}
-                  >
-                    <BookOpen size={12} />
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          )
-        })}
-        </AnimatePresence>
-      </div>
+      <VirtualSessionList
+        sessions={filteredSessions}
+        runningTimersByNote={runningTimersByNote}
+        pinnedNotes={pinnedNotes}
+        onEdit={setEditSession}
+        onPreview={setPreviewSession}
+      />
     </>
   )
 

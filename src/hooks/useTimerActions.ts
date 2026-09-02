@@ -8,13 +8,25 @@ import { formatTime, formatTimeShort } from '../utils/time'
 const PRESETS = [15, 25, 30, 45, 60, 90, 120]
 
 export function useTimerActions(timer: TimerInstance) {
-  const { startTimer, pauseTimer, stopTimer, setTimeEstimate, removeTimer } = useTimersStore()
-  const { discardTimer, setTimeEstimate: sessionSetEstimate } = useSessionStore()
+  const startTimer = useTimersStore(state => state.startTimer)
+  const pauseTimer = useTimersStore(state => state.pauseTimer)
+  const stopTimer = useTimersStore(state => state.stopTimer)
+  const setTimeEstimate = useTimersStore(state => state.setTimeEstimate)
+  const removeTimer = useTimersStore(state => state.removeTimer)
+  const discardTimer = useSessionStore(state => state.discardTimer)
+  const sessionSetEstimate = useSessionStore(state => state.setTimeEstimate)
   const mdConfig = useSessionStore(selectMdConfig)
-  const { timer: currentTimer, elapsed: elapsedMs } = useTimerElapsed(timer.id)
   const timeRef = useRef<HTMLDivElement>(null)
   const addedTimeRef = useRef<HTMLDivElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
+
+  const { timer: currentTimer, elapsed: elapsedMs } = useTimerElapsed(timer.id, (nextElapsed, activeTimer) => {
+    if (timeRef.current) timeRef.current.innerText = formatTime(nextElapsed)
+    if (addedTimeRef.current) {
+      const added = Math.max(0, nextElapsed - activeTimer.baseElapsed)
+      addedTimeRef.current.innerText = '+' + formatTimeShort(added)
+    }
+  })
 
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState('')
@@ -80,15 +92,15 @@ export function useTimerActions(timer: TimerInstance) {
   }, [elapsedMs, timeEstimate])
 
   useEffect(() => {
-    if (timeRef.current) {
+    if (!isRunning && timeRef.current) {
       timeRef.current.innerText = formatTime(elapsedMs)
     }
-    if (addedTimeRef.current) {
+    if (!isRunning && addedTimeRef.current) {
       const base = (currentTimer?.baseElapsed ?? timer.baseElapsed ?? timer.elapsed) || 0
       const added = Math.max(0, elapsedMs - base)
       addedTimeRef.current.innerText = '+' + formatTimeShort(added)
     }
-  }, [elapsedMs, currentTimer?.baseElapsed, timer.baseElapsed, timer.elapsed])
+  }, [elapsedMs, currentTimer?.baseElapsed, timer.baseElapsed, timer.elapsed, isRunning])
 
   const noteColor = timer.color || '#64748b'
   const realProgress = timeEstimate ? Math.min((elapsedMs / 60000 / timeEstimate) * 100, 100) : 0

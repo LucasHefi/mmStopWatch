@@ -46,7 +46,7 @@ describe('mmStopWatch MCP stdio contract', () => {
       result: {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'mmstopwatch', version: '1.7.0-rc.3' },
+        serverInfo: { name: 'mmstopwatch', version: '1.7.0-rc.5' },
       },
     })
   })
@@ -273,7 +273,7 @@ describe('mmStopWatch MCP stdio contract', () => {
         result: { isError: false, content: [{ type: 'text' }] },
       })
       const text = (result as { result: { content: [{ text: string }] } }).result.content[0].text
-      expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.3', ready: true } })
+      expect(JSON.parse(text)).toMatchObject({ ok: true, data: { appVersion: '1.7.0-rc.5', ready: true } })
     } finally {
       await server.close()
     }

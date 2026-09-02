@@ -3,6 +3,7 @@
 mod activity;
 mod app_state;
 mod config;
+mod database;
 mod i18n;
 mod integration;
 mod notification;
@@ -21,6 +22,7 @@ use chrono::{Datelike, Local};
 use config::AppConfig;
 use integration::{obsidian_url, open_url};
 use notification::{claim_expiration_once, play_sound, show as show_notification};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use report::save_report;
 use slint::{CloseRequestResponse, Model, ModelRc, Timer, TimerMode};
 use stats::snapshot as stats_snapshot;
@@ -34,12 +36,82 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use storage::{NoteIndex, NoteScan, create_note, write_time_estimate, write_total_duration};
+use storage::{Note, NoteIndex, NoteScan, create_note, write_time_estimate, write_total_duration};
 use timer::NativeTimer;
 
 slint::include_modules!();
 
 type AsyncScanResult = (NoteIndex, Result<NoteScan, String>, String, String);
+
+enum WatchSignal {
+    Paths(Vec<PathBuf>),
+    Reconcile,
+}
+
+struct VaultWatcher {
+    watcher: RecommendedWatcher,
+    root: Option<PathBuf>,
+}
+
+impl VaultWatcher {
+    fn new(sender: Sender<WatchSignal>) -> Result<Self, String> {
+        let watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+            let signal = match result {
+                Ok(event) => {
+                    if matches!(event.kind, EventKind::Access(_)) {
+                        return;
+                    }
+                    let markdown_paths = event
+                        .paths
+                        .iter()
+                        .filter(|path| {
+                            path.extension()
+                                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    if event.paths.iter().any(|path| path.is_dir())
+                        || (markdown_paths.is_empty() && event.paths.len() > 1)
+                    {
+                        Some(WatchSignal::Reconcile)
+                    } else if markdown_paths.is_empty() {
+                        None
+                    } else {
+                        Some(WatchSignal::Paths(markdown_paths))
+                    }
+                }
+                // An overflow or backend error means the index must reconcile
+                // instead of trusting that no Markdown file changed.
+                Err(_) => Some(WatchSignal::Reconcile),
+            };
+            if let Some(signal) = signal {
+                let _ = sender.send(signal);
+            }
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(Self {
+            watcher,
+            root: None,
+        })
+    }
+
+    fn set_root(&mut self, root: Option<&Path>) -> Result<(), String> {
+        if self.root.as_deref() == root {
+            return Ok(());
+        }
+        if let Some(previous) = self.root.take() {
+            let _ = self.watcher.unwatch(&previous);
+        }
+        if let Some(root) = root {
+            let canonical = root.canonicalize().map_err(|error| error.to_string())?;
+            self.watcher
+                .watch(&canonical, RecursiveMode::Recursive)
+                .map_err(|error| error.to_string())?;
+            self.root = Some(canonical);
+        }
+        Ok(())
+    }
+}
 
 fn scan_identity(config: &AppConfig) -> String {
     format!(
@@ -59,6 +131,29 @@ fn start_async_scan(
     state: &Rc<RefCell<AppState>>,
     sender: &Sender<AsyncScanResult>,
     completed_label: &str,
+) {
+    start_async_index_work(ui, state, sender, completed_label, None);
+}
+
+fn start_async_path_refresh(
+    ui: &AppWindow,
+    state: &Rc<RefCell<AppState>>,
+    sender: &Sender<AsyncScanResult>,
+    completed_label: &str,
+    paths: Vec<PathBuf>,
+) {
+    if paths.is_empty() {
+        return;
+    }
+    start_async_index_work(ui, state, sender, completed_label, Some(paths));
+}
+
+fn start_async_index_work(
+    ui: &AppWindow,
+    state: &Rc<RefCell<AppState>>,
+    sender: &Sender<AsyncScanResult>,
+    completed_label: &str,
+    paths: Option<Vec<PathBuf>>,
 ) {
     let work = {
         let mut state = state.borrow_mut();
@@ -86,9 +181,11 @@ fn start_async_scan(
     let completed_label = completed_label.to_owned();
     thread::spawn(move || {
         let (mut index, root, key, estimate_key, field_keys, identity) = work;
-        let result = index
-            .scan(&root, &key, &estimate_key, &field_keys)
-            .map_err(|error| error.to_string());
+        let result = match paths {
+            Some(paths) => index.refresh_paths(&root, &key, &estimate_key, &field_keys, &paths),
+            None => index.scan(&root, &key, &estimate_key, &field_keys),
+        }
+        .map_err(|error| error.to_string());
         let _ = sender.send((index, result, completed_label, identity));
     });
 }
@@ -111,16 +208,23 @@ fn apply_async_scan_results(
             continue;
         }
         state.index_cache_hits = index.cache_hits();
+        state.index_metrics = index.metrics();
+        state.index_revision = index.revision();
         state.note_index = index;
         match result {
             Ok(scan) => {
                 state.apply_note_scan(scan);
                 let count = state.notes.len();
-                let cached = state.index_cache_hits;
+                let metrics = state.index_metrics;
                 refresh_models(ui, &state);
                 set_status(
                     ui,
-                    format!("{completed_label} {count} poznámek · {cached} z cache"),
+                    format!(
+                        "{completed_label} {count} poznámek · {} z cache · {} změn · {} ms",
+                        metrics.cache_hits,
+                        metrics.parsed_files + metrics.deleted_files,
+                        metrics.elapsed.as_millis()
+                    ),
                     false,
                 );
             }
@@ -139,6 +243,27 @@ fn write_snapshot(ui: &AppWindow, path: &Path) -> io::Result<()> {
         pixels.height()
     )?;
     output.write_all(pixels.as_bytes())
+}
+
+fn install_scroll_benchmark_fixture(state: &mut AppState, note_count: usize) {
+    state.notes = (0..note_count)
+        .map(|index| Note {
+            path: PathBuf::from(format!(
+                "/benchmark/group-{}/note-{index:05}.md",
+                index % 100
+            )),
+            name: format!("Benchmark note {index:05}"),
+            relative_path: format!("group-{}/note-{index:05}.md", index % 100),
+            duration_ms: (index as u64 % 3_600) * 1_000,
+            preview: String::new(),
+            tags: vec!["benchmark".into(), format!("group-{}", index % 10)],
+            time_estimate_minutes: Some(30),
+            fields: Default::default(),
+        })
+        .collect();
+    state.visible_notes = (0..note_count).collect();
+    state.loaded_note_count = note_count;
+    state.rebuild_note_rows();
 }
 
 fn stats_calendar_day_row(day: &stats::CalendarDay) -> StatsCalendarDayRow {
@@ -437,11 +562,57 @@ fn main() -> Result<(), slint::PlatformError> {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or_else(|| usize::from(std::env::var_os("MMSTOPWATCH_PREVIEW_TIMER").is_some()));
-    let diagnostics = preview_count > 0;
+    let scroll_benchmark_count = std::env::var("MMSTOPWATCH_SCROLL_BENCHMARK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|count| (1..=50_000).contains(count));
+    let diagnostics = preview_count > 0 || scroll_benchmark_count.is_some();
     let state = Rc::new(RefCell::new(AppState::new(config, diagnostics)));
     let (scan_sender, scan_receiver) = std::sync::mpsc::channel::<AsyncScanResult>();
+    let (watch_sender, watch_receiver) = std::sync::mpsc::channel::<WatchSignal>();
+    let last_sidebar_scroll = Rc::new(Cell::new(
+        Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now),
+    ));
+    let watcher = Rc::new(RefCell::new(match VaultWatcher::new(watch_sender) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            eprintln!("vault watcher unavailable: {error}");
+            None
+        }
+    }));
+    if let Some(active_watcher) = watcher.borrow_mut().as_mut() {
+        let root = state.borrow().config.vault_path.clone();
+        if let Err(error) = active_watcher.set_root(root.as_deref()) {
+            eprintln!("vault watcher unavailable: {error}");
+        }
+    }
+    ui.set_notes(ModelRc::from(state.borrow().note_model.clone()));
     ui.set_timers(ModelRc::from(state.borrow().timer_model.clone()));
     ui.set_timer_grid(ModelRc::from(state.borrow().timer_grid_model.clone()));
+
+    let sidebar_scroll_idle_tick = Rc::new(Timer::default());
+    {
+        let weak = ui.as_weak();
+        let last_sidebar_scroll = last_sidebar_scroll.clone();
+        let sidebar_scroll_idle_tick = sidebar_scroll_idle_tick.clone();
+        ui.on_sidebar_scrolled(move || {
+            last_sidebar_scroll.set(Instant::now());
+            let Some(ui) = weak.upgrade() else { return };
+            ui.set_sidebar_scrolling(true);
+            let weak = weak.clone();
+            sidebar_scroll_idle_tick.start(
+                TimerMode::SingleShot,
+                Duration::from_millis(180),
+                move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_sidebar_scrolling(false);
+                    }
+                },
+            );
+        });
+    }
 
     {
         let weak = ui.as_weak();
@@ -618,11 +789,19 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    let mut scroll_fixture_elapsed = Duration::ZERO;
     if state.borrow().config.vault_path.is_some() {
         match state.borrow_mut().reload() {
             Ok(count) => set_status(&ui, format!("Načteno {count} poznámek"), false),
             Err(error) => set_status(&ui, error, true),
         }
+    }
+    if let Some(note_count) = scroll_benchmark_count {
+        let started = Instant::now();
+        install_scroll_benchmark_fixture(&mut state.borrow_mut(), note_count);
+        scroll_fixture_elapsed = started.elapsed();
+        ui.set_onboarding_visible(false);
+        ui.set_vault_path("syntetický scroll benchmark".into());
     }
     state.borrow_mut().restore_timers();
 
@@ -1062,6 +1241,7 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        let watcher = watcher.clone();
         ui.on_choose_folder(move || {
             let Some(ui) = weak.upgrade() else { return };
             let onboarding = ui.get_onboarding_visible();
@@ -1088,6 +1268,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         format!("Konfiguraci se nepodařilo uložit: {error}"),
                         true,
                     );
+                }
+                if let Some(active_watcher) = watcher.borrow_mut().as_mut()
+                    && let Err(error) = active_watcher.set_root(state.config.vault_path.as_deref())
+                {
+                    eprintln!("vault watcher unavailable: {error}");
                 }
                 match state.reload() {
                     Ok(count) => set_status(&ui, format!("Načteno {count} poznámek"), false),
@@ -1436,6 +1621,48 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    let watcher_tick = Timer::default();
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        let scan_sender = scan_sender.clone();
+        let mut pending = false;
+        let mut full_reconciliation = false;
+        let mut changed_paths = std::collections::HashSet::new();
+        let mut last_event = Instant::now();
+        watcher_tick.start(TimerMode::Repeated, Duration::from_millis(100), move || {
+            let Some(ui) = weak.upgrade() else { return };
+            while let Ok(signal) = watch_receiver.try_recv() {
+                pending = true;
+                last_event = Instant::now();
+                match signal {
+                    WatchSignal::Paths(paths) => changed_paths.extend(paths),
+                    WatchSignal::Reconcile => full_reconciliation = true,
+                }
+            }
+            if pending
+                && last_event.elapsed() >= Duration::from_millis(300)
+                && !state.borrow().scan_in_progress
+            {
+                pending = false;
+                if full_reconciliation {
+                    full_reconciliation = false;
+                    changed_paths.clear();
+                    start_async_scan(&ui, &state, &scan_sender, "Index aktualizován");
+                } else {
+                    let paths = changed_paths.drain().collect();
+                    start_async_path_refresh(
+                        &ui,
+                        &state,
+                        &scan_sender,
+                        "Index aktualizován",
+                        paths,
+                    );
+                }
+            }
+        });
+    }
+
     let timer_tick = Timer::default();
     {
         let weak = ui.as_weak();
@@ -1506,18 +1733,17 @@ fn main() -> Result<(), slint::PlatformError> {
     let animation_tick = Timer::default();
     {
         let weak = ui.as_weak();
-        let state = state.clone();
+        let last_sidebar_scroll = last_sidebar_scroll.clone();
         let mut phase = 0.0_f32;
-        let mut active_frame = 0_u8;
-        animation_tick.start(TimerMode::Repeated, Duration::from_millis(150), move || {
+        // Match the original React canvas cadence. Driving a long Slint
+        // property animation kept the software renderer repainting at display
+        // refresh rate and starved sidebar scrolling on large windows.
+        animation_tick.start(TimerMode::Repeated, Duration::from_millis(55), move || {
             let Some(ui) = weak.upgrade() else { return };
-            if state.borrow().timers.iter().any(NativeTimer::is_running) {
-                active_frame = (active_frame + 1) % 3;
-                if active_frame != 0 {
-                    return;
-                }
+            if last_sidebar_scroll.get().elapsed() < Duration::from_millis(180) {
+                return;
             }
-            phase = (phase + 0.012) % std::f32::consts::TAU;
+            phase = (phase + 0.0044) % std::f32::consts::TAU;
             ui.set_glow_a_x(18.0 + phase.sin() * 9.0);
             ui.set_glow_a_y(24.0 + (phase * 0.7).cos() * 10.0);
             ui.set_glow_b_x(48.0 + (phase * 0.8).cos() * 10.0);
@@ -1587,6 +1813,60 @@ fn main() -> Result<(), slint::PlatformError> {
             "onboarding" => ui.set_onboarding_visible(true),
             _ => {}
         }
+    }
+
+    let scroll_benchmark_tick = Rc::new(Timer::default());
+    if let Some(note_count) = scroll_benchmark_count {
+        let benchmark_tick = scroll_benchmark_tick.clone();
+        let weak = ui.as_weak();
+        let frame_count = 180_usize;
+        let mut frame = 0_usize;
+        let mut frame_intervals = Vec::with_capacity(frame_count.saturating_sub(1));
+        let mut previous_frame = Instant::now();
+        let benchmark_started = previous_frame;
+        let max_scroll = ((note_count as f32 * 104.0) - 440.0).max(0.0);
+        let last_sidebar_scroll = last_sidebar_scroll.clone();
+        scroll_benchmark_tick.start(
+            TimerMode::Repeated,
+            Duration::from_millis(16),
+            move || {
+                let Some(ui) = weak.upgrade() else { return };
+                let now = Instant::now();
+                last_sidebar_scroll.set(now);
+                if frame > 0 {
+                    frame_intervals.push(now.duration_since(previous_frame));
+                }
+                previous_frame = now;
+                let progress = frame as f32 / (frame_count.saturating_sub(1).max(1) as f32);
+                let position = if progress <= 0.5 {
+                    progress * 2.0
+                } else {
+                    (1.0 - progress) * 2.0
+                };
+                ui.set_notes_scroll_y(-max_scroll * position);
+                frame += 1;
+                if frame < frame_count {
+                    return;
+                }
+                benchmark_tick.stop();
+                frame_intervals.sort_unstable();
+                let percentile = |percent: usize| {
+                    frame_intervals[(frame_intervals.len() * percent / 100)
+                        .min(frame_intervals.len().saturating_sub(1))]
+                };
+                eprintln!(
+                    "scroll benchmark: {note_count} notes, model {:?}, frames {}, total {:?}, interval p50 {:?}, p95 {:?}, p99 {:?}, max {:?}",
+                    scroll_fixture_elapsed,
+                    frame_count,
+                    benchmark_started.elapsed(),
+                    percentile(50),
+                    percentile(95),
+                    percentile(99),
+                    frame_intervals.last().copied().unwrap_or_default(),
+                );
+                let _ = slint::quit_event_loop();
+            },
+        );
     }
 
     if let Some(snapshot_path) = std::env::var_os("MMSTOPWATCH_SNAPSHOT") {

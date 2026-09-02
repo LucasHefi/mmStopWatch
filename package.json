@@ -1,7 +1,7 @@
 {
   "name": "mmstopwatch",
   "private": true,
-  "version": "1.7.0-rc.3",
+  "version": "1.7.0-rc.5",
   "author": "Lukáš Hefner (mediamaker.cz)",
   "description": "Stopwatch for Obsidian & etc.",
   "homepage": "https://mediamaker.cz",

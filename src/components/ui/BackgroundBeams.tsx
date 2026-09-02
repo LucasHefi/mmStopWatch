@@ -1,101 +1,97 @@
-import { motion } from "framer-motion"
-import React from "react"
+import { memo, useEffect, useRef } from 'react'
 
 export interface BackgroundBeamsProps {
   className?: string
 }
 
-const pathData = [
-  "M-380 -189C-380 -189 -312 216 152 343C616 470 684 875 684 875",
-  "M-358 -213C-358 -213 -290 192 174 319C638 446 706 851 706 851",
-  "M-336 -237C-336 -237 -268 168 196 295C660 422 728 827 728 827",
-  "M-314 -261C-314 -261 -246 144 218 271C682 398 750 803 750 803",
-  "M-292 -285C-292 -285 -224 120 240 247C704 374 772 779 772 779",
-  "M-270 -309C-270 -309 -202 96 262 223C726 350 794 755 794 755",
-  "M-248 -333C-248 -333 -180 72 284 199C748 326 816 731 816 731",
-  "M-226 -357C-226 -357 -158 48 306 175C770 302 838 707 838 707",
-  "M-204 -381C-204 -381 -136 24 328 151C792 278 860 683 860 683",
-  "M-182 -405C-182 -405 -114 0 350 127C814 254 882 659 882 659",
-  "M-160 -429C-160 -429 -92 -24 372 103C836 230 904 635 904 635",
-  "M-138 -453C-138 -453 -70 -48 394 79C858 206 926 611 926 611",
-  "M-116 -477C-116 -477 -48 -72 416 55C880 182 948 587 948 587",
-  "M-94 -501C-94 -501 -26 -96 438 31C902 158 970 563 970 563",
-  "M-72 -525C-72 -525 -4 -120 460 7C924 134 992 539 992 539",
-  "M-50 -549C-50 -549 18 -144 482 -17C946 110 1014 515 1014 515",
-  "M-28 -573C-28 -573 40 -168 504 -41C968 86 1036 491 1036 491",
-  "M-6 -597C-6 -597 62 -192 526 -65C990 62 1058 467 1058 467",
-  "M16 -621C16 -621 84 -216 548 -89C1012 38 1080 443 1080 443",
-  "M38 -645C38 -645 106 -240 570 -113C1034 14 1102 419 1102 419",
-]
+const MAX_CANVAS_WIDTH = 480
+const FRAME_INTERVAL_MS = 1000 / 18
 
-// Pre-calculated animation values for each path
-const animations = pathData.map((_, i) => ({
-  duration: 4 + (i % 5) * 0.8,
-  delay: i * 0.15,
-  initialProgress: (i * 5) % 100,
-}))
+function createGlowSprite(innerColor: string): HTMLCanvasElement {
+  const sprite = document.createElement('canvas')
+  sprite.width = 160
+  sprite.height = 160
+  const context = sprite.getContext('2d')
+  if (!context) return sprite
+  const gradient = context.createRadialGradient(80, 80, 0, 80, 80, 80)
+  gradient.addColorStop(0, innerColor)
+  gradient.addColorStop(0.42, innerColor.replace('0.28', '0.11'))
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  context.fillStyle = gradient
+  context.fillRect(0, 0, 160, 160)
+  return sprite
+}
 
-export const BackgroundBeams = React.memo(({ className }: BackgroundBeamsProps) => {
+function drawGlow(
+  context: CanvasRenderingContext2D,
+  sprite: HTMLCanvasElement,
+  x: number,
+  y: number,
+  radiusX: number,
+  radiusY: number,
+  rotation: number,
+): void {
+  context.save()
+  context.translate(x, y)
+  context.rotate(rotation)
+  context.drawImage(sprite, -radiusX, -radiusY, radiusX * 2, radiusY * 2)
+  context.restore()
+}
+
+export const BackgroundBeams = memo(({ className = '' }: BackgroundBeamsProps) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const context = canvas?.getContext('2d', { alpha: true })
+    if (!canvas || !context) return
+
+    let frameId = 0
+    let lastFrame = 0
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const glowSprites = [
+      createGlowSprite('rgba(24, 204, 252, 0.28)'),
+      createGlowSprite('rgba(174, 72, 255, 0.28)'),
+      createGlowSprite('rgba(99, 68, 245, 0.28)'),
+    ]
+
+    const resize = () => {
+      const width = Math.min(MAX_CANVAS_WIDTH, Math.max(240, Math.round(canvas.clientWidth / 2)))
+      const ratio = canvas.clientHeight / Math.max(canvas.clientWidth, 1)
+      canvas.width = width
+      canvas.height = Math.max(140, Math.round(width * ratio))
+    }
+
+    const render = (now: number) => {
+      frameId = window.requestAnimationFrame(render)
+      if (document.hidden || (!reduceMotion && now - lastFrame < FRAME_INTERVAL_MS)) return
+      if (reduceMotion && lastFrame > 0) return
+      lastFrame = now
+
+      const width = canvas.width
+      const height = canvas.height
+      const phase = now * 0.00016
+      context.clearRect(0, 0, width, height)
+      context.globalCompositeOperation = 'screen'
+      drawGlow(context, glowSprites[0], width * (0.24 + Math.sin(phase) * 0.12), height * (0.28 + Math.cos(phase * 0.8) * 0.12), width * 0.48, height * 0.18, 0.34)
+      drawGlow(context, glowSprites[1], width * (0.72 + Math.cos(phase * 0.72) * 0.13), height * (0.67 + Math.sin(phase * 0.9) * 0.14), width * 0.45, height * 0.2, -0.4)
+      drawGlow(context, glowSprites[2], width * (0.5 + Math.sin(phase * 0.55) * 0.16), height * (0.48 + Math.cos(phase * 0.6) * 0.1), width * 0.38, height * 0.12, 0.12)
+    }
+
+    resize()
+    window.addEventListener('resize', resize)
+    frameId = window.requestAnimationFrame(render)
+    return () => {
+      window.cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', resize)
+    }
+  }, [])
+
   return (
-    <div className={`pointer-events-none absolute inset-0 h-full w-full ${className || ''}`}>
-      <svg
-        aria-hidden="true"
-        className="absolute h-full w-full"
-        fill="none"
-        viewBox="0 0 696 316"
-        xmlns="http://www.w3.org/2000/svg"
-        preserveAspectRatio="xMidYMid slice"
-      >
-        {/* Static faint paths for depth */}
-        <g opacity="0.03">
-          {pathData.map((d, i) => (
-            <path key={`static-${i}`} d={d} stroke="white" strokeWidth="0.5" />
-          ))}
-        </g>
-
-        {/* Animated gradient beams */}
-        {pathData.map((d, i) => (
-          <motion.path
-            key={`beam-${i}`}
-            d={d}
-            stroke={`url(#gradient-${i})`}
-            strokeWidth="1"
-            strokeLinecap="round"
-            initial={{ pathLength: 0, opacity: 0 }}
-            animate={{
-              pathLength: [0, 1],
-              opacity: [0, 0.6, 0.6, 0],
-            }}
-            transition={{
-              duration: animations[i].duration,
-              delay: animations[i].delay,
-              repeat: Number.POSITIVE_INFINITY,
-              ease: "easeInOut",
-            }}
-          />
-        ))}
-
-        <defs>
-          {pathData.map((_, i) => (
-            <linearGradient
-              key={`gradient-${i}`}
-              id={`gradient-${i}`}
-              x1="0%"
-              y1="0%"
-              x2="100%"
-              y2="100%"
-            >
-              <stop offset="0%" stopColor="#18CCFC" stopOpacity="0" />
-              <stop offset="20%" stopColor="#18CCFC" stopOpacity="1" />
-              <stop offset="50%" stopColor="#6344F5" stopOpacity="1" />
-              <stop offset="80%" stopColor="#AE48FF" stopOpacity="1" />
-              <stop offset="100%" stopColor="#AE48FF" stopOpacity="0" />
-            </linearGradient>
-          ))}
-        </defs>
-      </svg>
+    <div aria-hidden="true" className={`ambient-light-field pointer-events-none absolute inset-0 overflow-hidden ${className}`}>
+      <canvas ref={canvasRef} className="ambient-canvas absolute inset-0 h-full w-full" />
     </div>
   )
 })
 
-BackgroundBeams.displayName = "BackgroundBeams"
+BackgroundBeams.displayName = 'BackgroundBeams'

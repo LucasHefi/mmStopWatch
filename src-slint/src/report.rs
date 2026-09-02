@@ -1,5 +1,5 @@
 use crate::{
-    activity::{ActivityEntry, load_activity},
+    activity::{ActivityEntry, load_activity_range},
     config::AppConfig,
     storage::Note,
 };
@@ -17,10 +17,7 @@ pub fn save_report(config: &AppConfig, notes: &[Note], days: i64) -> io::Result<
         .ok_or_else(|| io::Error::other("není vybraný vault"))?;
     let now = Local::now();
     let since = (now - Duration::days(days)).timestamp_millis();
-    let entries = load_activity(config)
-        .into_iter()
-        .filter(|entry| entry.timestamp >= since)
-        .collect::<Vec<_>>();
+    let entries = load_activity_range(config, Some(since), None);
     let kind = if days <= 7 { "weekly" } else { "monthly" };
     let markdown = build_report(config, notes, &entries, days, now);
 

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Play, Pause, Save, X, Timer, Pencil, Check, AlertCircle, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
@@ -13,7 +14,7 @@ interface TimerTableViewProps {
   dragHandle?: boolean
 }
 
-export default function TimerTableView({ timer, dragHandle }: TimerTableViewProps) {
+function TimerTableView({ timer, dragHandle }: TimerTableViewProps) {
   const { t } = useTranslation()
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging
@@ -174,3 +175,5 @@ export default function TimerTableView({ timer, dragHandle }: TimerTableViewProp
     </motion.tr>
   )
 }
+
+export default memo(TimerTableView)

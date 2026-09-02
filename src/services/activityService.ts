@@ -5,8 +5,10 @@ import { resolveVaultMarkdownPath } from './pathSecurity'
 import { writeTextFileAtomically } from './safeFileWriter'
 
 class ActivityService {
+  private static readonly MAX_CACHED_HISTORIES = 3
   private history: ActivityHistory = { entries: [] }
   private historyCache: Map<string, ActivityHistory> = new Map()
+  private historyCacheOrder: string[] = []
   private writeQueues: Map<string, Promise<void>> = new Map()
   private currentFolder: string | null = null
   private currentNick: string | null = null
@@ -15,6 +17,16 @@ class ActivityService {
 
   private cacheKey(folderPath: string, nick: string | null): string {
     return `${folderPath}\u0000${nick ?? ''}`
+  }
+
+  private cacheHistory(key: string, history: ActivityHistory): void {
+    this.historyCache.set(key, history)
+    this.historyCacheOrder = this.historyCacheOrder.filter(item => item !== key)
+    this.historyCacheOrder.push(key)
+    while (this.historyCacheOrder.length > ActivityService.MAX_CACHED_HISTORIES) {
+      const oldest = this.historyCacheOrder.shift()
+      if (oldest) this.historyCache.delete(oldest)
+    }
   }
 
   async loadHistory(folderPath: string): Promise<ActivityHistory> {
@@ -34,7 +46,7 @@ class ActivityService {
     if (!Array.isArray(history.entries)) {
       history.entries = []
     }
-    if (this.cacheLoadGenerations.get(key) === cacheGeneration) this.historyCache.set(key, history)
+    if (this.cacheLoadGenerations.get(key) === cacheGeneration) this.cacheHistory(key, history)
     if (generation === this.loadGeneration) {
       this.currentFolder = folderPath
       this.currentNick = nick
@@ -85,7 +97,7 @@ class ActivityService {
 
       const updated = { entries: [...history.entries, ...entries] }
       await saveActivity(updated, folderPath, nick)
-      this.historyCache.set(key, updated)
+      this.cacheHistory(key, updated)
       if (this.currentFolder === folderPath && this.currentNick === nick) this.history = updated
     })
 
@@ -108,7 +120,7 @@ class ActivityService {
     if (cached) return cached
     const data = await loadActivity(folderPath, nick)
     if (!Array.isArray(data.entries)) data.entries = []
-    this.historyCache.set(key, data)
+    this.cacheHistory(key, data)
     return data
   }
 
