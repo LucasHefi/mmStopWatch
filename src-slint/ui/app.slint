@@ -891,7 +891,8 @@ component StatsTrendBar inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "mmStopWatch";
+    in property <string> app-version: "dev";
+    title: "mmStopWatch Native v" + app-version;
     in-out property <length> preview-width: 900px;
     in-out property <length> preview-height: 600px;
     preferred-width: root.preview-width;

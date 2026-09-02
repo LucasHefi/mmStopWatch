@@ -537,6 +537,7 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let ui = AppWindow::new()?;
+    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
     I18n::get(&ui).on_tr(move |language, key| i18n::tr(language.as_str(), key.as_str()).into());
     if let (Ok(width), Ok(height)) = (
         std::env::var("MMSTOPWATCH_PREVIEW_WIDTH"),

@@ -2716,7 +2716,7 @@ dependencies = [
 
 [[package]]
 name = "mmstopwatch-slint"
-version = "1.7.0"
+version = "1.7.0-rc.6"
 dependencies = [
  "chrono",
  "minreq",
