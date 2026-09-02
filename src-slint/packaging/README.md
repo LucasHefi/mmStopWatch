@@ -1,6 +1,6 @@
 # Native release packaging
 
-Linux packages are built with `packaging/linux/package-deb.sh`. The script creates a user-installable `.deb` plus its SHA-256 checksum under `target/packages` and never modifies the source tree.
+Linux packages are built with `packaging/linux/package-deb.sh`. The script creates a user-installable `.deb` plus its SHA-256 checksum under `target/packages` and never modifies the source tree. The native package declares that it conflicts with, replaces and provides the former `mm-stop-watch` Tauri package, so apt performs a clean edition switch instead of competing for `/usr/bin/mmstopwatch`.
 
 Windows packages use the NSIS definition in `packaging/windows/mmstopwatch.nsi`. Build the release binary first, then run `makensis /DVERSION=<version> packaging/windows/mmstopwatch.nsi` from the `src-slint` directory.
 

@@ -5,5 +5,8 @@ Priority: optional
 Architecture: @ARCH@
 Maintainer: Lukáš Hefner <info@mediamaker.cz>
 Depends: libc6, libfontconfig1, libxkbcommon0
+Conflicts: mm-stop-watch
+Replaces: mm-stop-watch
+Provides: mm-stop-watch
 Description: Lightweight native time tracker for Markdown and Obsidian
  Native Slint edition of mmStopWatch without a browser engine or JavaScript runtime.
