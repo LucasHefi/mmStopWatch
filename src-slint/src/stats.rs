@@ -97,13 +97,21 @@ fn field_breakdown(
     notes: &[Note],
     field_keys: &[String],
 ) -> Vec<BreakdownTotal> {
-    let notes_by_path = notes
-        .iter()
-        .map(|note| (note.path.to_string_lossy().into_owned(), note))
-        .collect::<HashMap<_, _>>();
+    let mut notes_by_path: HashMap<String, Option<&Note>> = HashMap::new();
+    for note in notes {
+        for key in [
+            normalized_note_path(note.path.to_string_lossy().as_ref()),
+            normalized_note_path(&note.relative_path),
+        ] {
+            notes_by_path
+                .entry(key)
+                .and_modify(|match_| *match_ = None)
+                .or_insert(Some(note));
+        }
+    }
     let mut totals: HashMap<(String, String), BreakdownTotal> = HashMap::new();
     for entry in entries {
-        let Some(note) = notes_by_path.get(&entry.note_path) else {
+        let Some(note) = matching_note(&notes_by_path, &entry.note_path) else {
             continue;
         };
         for field in field_keys {
@@ -133,6 +141,25 @@ fn field_breakdown(
         })
     });
     result
+}
+
+fn matching_note<'a>(
+    notes_by_path: &HashMap<String, Option<&'a Note>>,
+    path: &str,
+) -> Option<&'a Note> {
+    let normalized = normalized_note_path(path);
+    let mut candidate = normalized.as_str();
+    loop {
+        if let Some(Some(note)) = notes_by_path.get(candidate) {
+            return Some(*note);
+        }
+        let (_, suffix) = candidate.split_once('/')?;
+        candidate = suffix;
+    }
+}
+
+fn normalized_note_path(path: &str) -> String {
+    path.replace('\\', "/").trim_start_matches("./").to_owned()
 }
 
 pub fn calendar_snapshot(config: &AppConfig, month_offset: i32) -> CalendarSnapshot {
@@ -608,11 +635,11 @@ mod tests {
     fn breakdown_aggregates_configured_frontmatter_values() {
         let today = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
         let mut first = entry(today, 60_000);
-        first.note_path = "/vault/note.md".into();
+        first.note_path = r"D:\Bucifalek\vault\projects\note.md".into();
         let notes = vec![Note {
-            path: std::path::PathBuf::from("/vault/note.md"),
+            path: std::path::PathBuf::from("/home/user/vault/projects/note.md"),
             name: "Note".into(),
-            relative_path: "note.md".into(),
+            relative_path: "projects/note.md".into(),
             duration_ms: 60_000,
             preview: String::new(),
             tags: Vec::new(),

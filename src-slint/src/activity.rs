@@ -1,7 +1,7 @@
 use crate::{config::AppConfig, database};
 use chrono::{DateTime, Days, Local, TimeZone};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -12,18 +12,60 @@ const ACTIVITY_SCHEMA_VERSION: i64 = 1;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ActivityEntry {
+    #[serde(deserialize_with = "deserialize_timestamp_ms")]
     pub timestamp: i64,
+    #[serde(deserialize_with = "deserialize_duration_ms")]
     pub duration_ms: u64,
     #[serde(rename = "notePath")]
     pub note_path: String,
     #[serde(rename = "noteName")]
     pub note_name: String,
-    #[serde(default)]
+    #[serde(default, alias = "savedAt")]
     pub saved_at: i64,
-    #[serde(default)]
+    #[serde(default, alias = "endTimestamp")]
     pub end_timestamp: i64,
-    #[serde(default)]
+    #[serde(default, alias = "operationId")]
     pub operation_id: String,
+}
+
+fn deserialize_timestamp_ms<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TimestampValue {
+        Integer(i64),
+        Float(f64),
+    }
+
+    match TimestampValue::deserialize(deserializer)? {
+        TimestampValue::Integer(value) => Ok(value),
+        TimestampValue::Float(value) if value.is_finite() => {
+            Ok(value.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64)
+        }
+        TimestampValue::Float(_) => Err(de::Error::custom("timestamp musí být konečné číslo")),
+    }
+}
+
+fn deserialize_duration_ms<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum DurationValue {
+        Integer(u64),
+        Float(f64),
+    }
+
+    match DurationValue::deserialize(deserializer)? {
+        DurationValue::Integer(value) => Ok(value),
+        DurationValue::Float(value) if value.is_finite() && value >= 0.0 => {
+            Ok(value.round().min(u64::MAX as f64) as u64)
+        }
+        DurationValue::Float(_) => Err(de::Error::custom("duration_ms musí být nezáporné číslo")),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -606,10 +648,12 @@ mod tests {
     #[test]
     fn loads_legacy_entries_without_recovery_metadata() {
         let history: ActivityHistory = serde_json::from_str(
-            r#"{"entries":[{"timestamp":1000,"duration_ms":500,"notePath":"note.md","noteName":"Note"}]}"#,
+            r#"{"entries":[{"timestamp":1000.6,"duration_ms":500.6,"notePath":"note.md","noteName":"Note"}]}"#,
         )
         .expect("legacy activity should remain readable");
         assert_eq!(history.entries.len(), 1);
+        assert_eq!(history.entries[0].timestamp, 1_001);
+        assert_eq!(history.entries[0].duration_ms, 501);
         assert_eq!(history.entries[0].saved_at, 0);
         assert_eq!(history.entries[0].end_timestamp, 0);
         assert!(history.entries[0].operation_id.is_empty());
@@ -657,6 +701,40 @@ mod tests {
         assert_eq!(summary.longest_ms, 1_500);
         assert_eq!(summary.first_timestamp, Some(1_000));
         assert_eq!(summary.last_timestamp, Some(2_000));
+
+        fs::remove_dir_all(root).expect("remove activity fixture");
+    }
+
+    #[test]
+    fn projection_keeps_profile_statistics_isolated() {
+        let (root, database_directory, alpha) = fixture();
+        let beta = AppConfig {
+            vault_path: Some(root.clone()),
+            nick: Some("beta".into()),
+            ..AppConfig::default()
+        };
+        fs::create_dir_all(root.join(".mmST-beta")).expect("create second profile");
+        write_json_atomically(
+            &root.join(".mmST-test/activity.json"),
+            &ActivityHistory {
+                entries: vec![entry(1_000, 500, "alpha")],
+            },
+        )
+        .expect("write alpha ledger");
+        write_json_atomically(
+            &root.join(".mmST-beta/activity.json"),
+            &ActivityHistory {
+                entries: vec![entry(2_000, 2_500, "beta")],
+            },
+        )
+        .expect("write beta ledger");
+
+        let alpha_summary =
+            try_activity_summary(&alpha, None, None, Some(&database_directory)).unwrap();
+        let beta_summary =
+            try_activity_summary(&beta, None, None, Some(&database_directory)).unwrap();
+        assert_eq!((alpha_summary.count, alpha_summary.total_ms), (1, 500));
+        assert_eq!((beta_summary.count, beta_summary.total_ms), (1, 2_500));
 
         fs::remove_dir_all(root).expect("remove activity fixture");
     }

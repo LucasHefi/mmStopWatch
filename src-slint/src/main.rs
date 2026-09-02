@@ -15,8 +15,8 @@ mod updater;
 
 use activity::append_activity;
 use app_state::{
-    AppState, COLORS, refresh_grid_row, refresh_models, refresh_note_model, set_status,
-    sync_grid_model, timer_row,
+    AppState, COLORS, indexed_stats_field_keys, refresh_grid_row, refresh_models,
+    refresh_note_model, set_status, sync_grid_model, timer_row,
 };
 use chrono::{Datelike, Local};
 use config::AppConfig;
@@ -114,6 +114,7 @@ impl VaultWatcher {
 }
 
 fn scan_identity(config: &AppConfig) -> String {
+    let field_keys = indexed_stats_field_keys(config);
     format!(
         "{}\u{1f}{}\u{1f}{}\u{1f}{}",
         config
@@ -122,7 +123,7 @@ fn scan_identity(config: &AppConfig) -> String {
             .map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
         config.frontmatter_key,
         config.time_estimate_key,
-        config.stats_field_keys.join("\u{1e}")
+        field_keys.join("\u{1e}")
     )
 }
 
@@ -171,7 +172,7 @@ fn start_async_index_work(
             root,
             state.config.frontmatter_key.clone(),
             state.config.time_estimate_key.clone(),
-            state.config.stats_field_keys.clone(),
+            indexed_stats_field_keys(&state.config),
             scan_identity(&state.config),
         )
     };
@@ -313,6 +314,141 @@ fn format_productivity_slope(slope_ms: i64) -> String {
     } else {
         format!("{arrow} {seconds:.1} s / den")
     }
+}
+
+fn available_stats_profiles(config: &AppConfig) -> Vec<AppConfig> {
+    let mut profiles = config.available_profiles();
+    if let Some(active_nick) = config.nick.as_deref() {
+        if let Some(active) = profiles
+            .iter_mut()
+            .find(|profile| profile.nick.as_deref() == Some(active_nick))
+        {
+            *active = config.clone();
+        } else {
+            profiles.push(config.clone());
+        }
+    } else if profiles.is_empty() {
+        profiles.push(config.clone());
+    }
+    profiles
+}
+
+fn active_stats_profile_index(config: &AppConfig, profiles: &[AppConfig]) -> usize {
+    profiles
+        .iter()
+        .position(|profile| profile.nick == config.nick)
+        .unwrap_or(0)
+}
+
+fn set_stats_snapshot(ui: &AppWindow, snapshot: stats::StatsSnapshot) {
+    ui.set_stats_breakdown_count(snapshot.breakdown.len() as i32);
+    ui.set_stats_total(storage::format_time(snapshot.total_ms).into());
+    ui.set_stats_today(storage::format_time(snapshot.today_ms).into());
+    ui.set_stats_week(storage::format_time(snapshot.week_ms).into());
+    ui.set_stats_month(storage::format_time(snapshot.month_ms).into());
+    ui.set_stats_average(storage::format_time(snapshot.average_ms).into());
+    ui.set_stats_longest(storage::format_time(snapshot.longest_ms).into());
+    ui.set_stats_count(snapshot.count as i32);
+    ui.set_goal_progress(snapshot.goal_progress);
+    ui.set_stats_streak(snapshot.streak_days as i32);
+    ui.set_stats_consistency(snapshot.consistency_percent as i32);
+    ui.set_stats_weekly_delta(snapshot.weekly_delta_percent);
+    ui.set_stats_best_weekday(snapshot.best_weekday.into());
+    ui.set_stats_peak_hour(snapshot.peak_hour.into());
+    ui.set_stats_weekday_average(storage::format_time(snapshot.weekday_average_ms).into());
+    ui.set_stats_weekend_average(storage::format_time(snapshot.weekend_average_ms).into());
+    ui.set_stats_night_percent(snapshot.night_percent as i32);
+    ui.set_stats_productivity_direction(snapshot.productivity_slope_ms.signum() as i32);
+    ui.set_stats_productivity(format_productivity_slope(snapshot.productivity_slope_ms).into());
+    ui.set_stats_weekdays(ModelRc::new(slint::VecModel::from(
+        snapshot
+            .weekdays
+            .into_iter()
+            .map(|row| StatsTrendRow {
+                label: row.label.into(),
+                duration: storage::format_time(row.duration_ms).into(),
+                progress: row.progress,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    ui.set_stats_hours(ModelRc::new(slint::VecModel::from(
+        snapshot
+            .hours
+            .into_iter()
+            .map(|row| StatsTrendRow {
+                label: row.label.into(),
+                duration: storage::format_time(row.duration_ms).into(),
+                progress: row.progress,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    set_stats_calendar(
+        ui,
+        stats::CalendarSnapshot {
+            month: snapshot.calendar_month,
+            days: snapshot.calendar,
+        },
+    );
+    ui.set_stats_days(ModelRc::new(slint::VecModel::from(
+        snapshot
+            .daily
+            .into_iter()
+            .map(|day| StatsDayRow {
+                date: day.date.format("%d.%m.").to_string().into(),
+                duration: storage::format_time(day.duration_ms).into(),
+                progress: day.goal_progress,
+                goal_met: day.goal_met,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    ui.set_stats_notes(ModelRc::new(slint::VecModel::from(
+        snapshot
+            .top_notes
+            .into_iter()
+            .map(|note| StatsRow {
+                name: note.name.into(),
+                duration: storage::format_time(note.duration_ms).into(),
+                count: note.count as i32,
+            })
+            .collect::<Vec<_>>(),
+    )));
+    ui.set_stats_breakdown(ModelRc::new(slint::VecModel::from(
+        snapshot
+            .breakdown
+            .into_iter()
+            .map(|row| StatsRow {
+                name: format!("{} · {}", row.field, row.value).into(),
+                duration: storage::format_time(row.duration_ms).into(),
+                count: row.count as i32,
+            })
+            .collect::<Vec<_>>(),
+    )));
+}
+
+fn present_stats_profile(
+    ui: &AppWindow,
+    state: &AppState,
+    requested_index: usize,
+    calendar_offset: i32,
+) -> usize {
+    let profiles = available_stats_profiles(&state.config);
+    let index = requested_index.min(profiles.len().saturating_sub(1));
+    let profile = &profiles[index];
+    ui.set_stats_profile_index(index as i32);
+    ui.set_stats_profile_count(profiles.len().max(1) as i32);
+    ui.set_stats_profile_name(
+        profile
+            .nick
+            .clone()
+            .unwrap_or_else(|| "výchozí".into())
+            .into(),
+    );
+    ui.set_stats_profile_active(profile.nick == state.config.nick);
+    set_stats_snapshot(ui, stats_snapshot(profile, &state.notes));
+    if calendar_offset != 0 {
+        set_stats_calendar(ui, stats::calendar_snapshot(profile, calendar_offset));
+    }
+    index
 }
 
 fn sync_settings(ui: &AppWindow, config: &AppConfig) {
@@ -1109,100 +1245,19 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     let stats_calendar_offset = Rc::new(Cell::new(0_i32));
+    let stats_profile_index = Rc::new(Cell::new(0_usize));
     {
         let weak = ui.as_weak();
         let state = state.clone();
         let calendar_offset = stats_calendar_offset.clone();
+        let profile_index = stats_profile_index.clone();
         ui.on_open_stats(move || {
             let Some(ui) = weak.upgrade() else { return };
-            let snapshot = {
-                let state = state.borrow();
-                stats_snapshot(&state.config, &state.notes)
-            };
             calendar_offset.set(0);
-            ui.set_stats_total(storage::format_time(snapshot.total_ms).into());
-            ui.set_stats_today(storage::format_time(snapshot.today_ms).into());
-            ui.set_stats_week(storage::format_time(snapshot.week_ms).into());
-            ui.set_stats_month(storage::format_time(snapshot.month_ms).into());
-            ui.set_stats_average(storage::format_time(snapshot.average_ms).into());
-            ui.set_stats_longest(storage::format_time(snapshot.longest_ms).into());
-            ui.set_stats_count(snapshot.count as i32);
-            ui.set_goal_progress(snapshot.goal_progress);
-            ui.set_stats_streak(snapshot.streak_days as i32);
-            ui.set_stats_consistency(snapshot.consistency_percent as i32);
-            ui.set_stats_weekly_delta(snapshot.weekly_delta_percent);
-            ui.set_stats_best_weekday(snapshot.best_weekday.into());
-            ui.set_stats_peak_hour(snapshot.peak_hour.into());
-            ui.set_stats_weekday_average(storage::format_time(snapshot.weekday_average_ms).into());
-            ui.set_stats_weekend_average(storage::format_time(snapshot.weekend_average_ms).into());
-            ui.set_stats_night_percent(snapshot.night_percent as i32);
-            ui.set_stats_productivity_direction(snapshot.productivity_slope_ms.signum() as i32);
-            ui.set_stats_productivity(
-                format_productivity_slope(snapshot.productivity_slope_ms).into(),
-            );
-            ui.set_stats_weekdays(ModelRc::new(slint::VecModel::from(
-                snapshot
-                    .weekdays
-                    .into_iter()
-                    .map(|row| StatsTrendRow {
-                        label: row.label.into(),
-                        duration: storage::format_time(row.duration_ms).into(),
-                        progress: row.progress,
-                    })
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_stats_hours(ModelRc::new(slint::VecModel::from(
-                snapshot
-                    .hours
-                    .into_iter()
-                    .map(|row| StatsTrendRow {
-                        label: row.label.into(),
-                        duration: storage::format_time(row.duration_ms).into(),
-                        progress: row.progress,
-                    })
-                    .collect::<Vec<_>>(),
-            )));
-            set_stats_calendar(
-                &ui,
-                stats::CalendarSnapshot {
-                    month: snapshot.calendar_month,
-                    days: snapshot.calendar,
-                },
-            );
-            ui.set_stats_days(ModelRc::new(slint::VecModel::from(
-                snapshot
-                    .daily
-                    .into_iter()
-                    .map(|day| StatsDayRow {
-                        date: day.date.format("%d.%m.").to_string().into(),
-                        duration: storage::format_time(day.duration_ms).into(),
-                        progress: day.goal_progress,
-                        goal_met: day.goal_met,
-                    })
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_stats_notes(ModelRc::new(slint::VecModel::from(
-                snapshot
-                    .top_notes
-                    .into_iter()
-                    .map(|note| StatsRow {
-                        name: note.name.into(),
-                        duration: storage::format_time(note.duration_ms).into(),
-                        count: note.count as i32,
-                    })
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_stats_breakdown(ModelRc::new(slint::VecModel::from(
-                snapshot
-                    .breakdown
-                    .into_iter()
-                    .map(|row| StatsRow {
-                        name: format!("{} · {}", row.field, row.value).into(),
-                        duration: storage::format_time(row.duration_ms).into(),
-                        count: row.count as i32,
-                    })
-                    .collect::<Vec<_>>(),
-            )));
+            let state = state.borrow();
+            let profiles = available_stats_profiles(&state.config);
+            let active_index = active_stats_profile_index(&state.config, &profiles);
+            profile_index.set(present_stats_profile(&ui, &state, active_index, 0));
             ui.set_stats_open(true);
         });
     }
@@ -1210,25 +1265,50 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let weak = ui.as_weak();
         let state = state.clone();
-        let calendar_offset = stats_calendar_offset;
-        ui.on_shift_stats_calendar(move |delta| {
+        let calendar_offset = stats_calendar_offset.clone();
+        let profile_index = stats_profile_index.clone();
+        ui.on_shift_stats_profile(move |delta| {
             let Some(ui) = weak.upgrade() else { return };
-            let offset = calendar_offset.get().saturating_add(delta).clamp(-120, 120);
-            calendar_offset.set(offset);
-            set_stats_calendar(
-                &ui,
-                stats::calendar_snapshot(&state.borrow().config, offset),
-            );
+            let state = state.borrow();
+            let profile_count = available_stats_profiles(&state.config).len().max(1);
+            let next = profile_index
+                .get()
+                .saturating_add_signed(delta as isize)
+                .min(profile_count - 1);
+            if next == profile_index.get() {
+                return;
+            }
+            calendar_offset.set(0);
+            profile_index.set(present_stats_profile(&ui, &state, next, 0));
         });
     }
 
     {
         let weak = ui.as_weak();
         let state = state.clone();
+        let calendar_offset = stats_calendar_offset.clone();
+        let profile_index = stats_profile_index.clone();
+        ui.on_shift_stats_calendar(move |delta| {
+            let Some(ui) = weak.upgrade() else { return };
+            let offset = calendar_offset.get().saturating_add(delta).clamp(-120, 120);
+            calendar_offset.set(offset);
+            let state = state.borrow();
+            let profiles = available_stats_profiles(&state.config);
+            let index = profile_index.get().min(profiles.len().saturating_sub(1));
+            set_stats_calendar(&ui, stats::calendar_snapshot(&profiles[index], offset));
+        });
+    }
+
+    {
+        let weak = ui.as_weak();
+        let state = state.clone();
+        let profile_index = stats_profile_index;
         ui.on_export_report(move |monthly| {
             let Some(ui) = weak.upgrade() else { return };
             let state = state.borrow();
-            match save_report(&state.config, &state.notes, if monthly { 30 } else { 7 }) {
+            let profiles = available_stats_profiles(&state.config);
+            let index = profile_index.get().min(profiles.len().saturating_sub(1));
+            match save_report(&profiles[index], &state.notes, if monthly { 30 } else { 7 }) {
                 Ok(path) => set_status(
                     &ui,
                     format!("Report byl uložen do {}", path.to_string_lossy()),
@@ -1802,6 +1882,14 @@ fn main() -> Result<(), slint::PlatformError> {
                     && let Ok(tab) = tab.parse::<i32>()
                 {
                     ui.set_stats_tab(tab.clamp(0, 5));
+                }
+                if let Ok(profile) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_PROFILE")
+                    && let Ok(profile) = profile.parse::<i32>()
+                {
+                    ui.invoke_shift_stats_profile(
+                        profile.clamp(0, ui.get_stats_profile_count() - 1)
+                            - ui.get_stats_profile_index(),
+                    );
                 }
                 if let Ok(offset) = std::env::var("MMSTOPWATCH_PREVIEW_STATS_MONTH")
                     && let Ok(offset) = offset.parse::<i32>()

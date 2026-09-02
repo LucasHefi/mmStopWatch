@@ -104,6 +104,7 @@ component SmallButton inherits Rectangle {
     in property <bool> danger: false;
     in property <bool> enabled: true;
     callback clicked;
+    min-width: 0px;
     height: 30px;
     border-radius: 7px;
     background: touch.pressed ? #3f3f46 : touch.has-hover && enabled ? #303036 : active ? #27272a : #18181b;
@@ -114,11 +115,13 @@ component SmallButton inherits Rectangle {
     animate border-color { duration: 160ms; easing: ease-out; }
 
     Text {
+        width: parent.width;
         text: root.label;
         color: root.danger ? #fb7185 : root.active ? #fafafa : #a1a1aa;
         font-size: 11px;
         // Keep the button's layout metrics stable while the active state changes.
         font-weight: 500;
+        overflow: elide;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -1004,6 +1007,7 @@ export component AppWindow inherits Window {
     in property <int> stats-weekly-delta: 0;
     in property <[StatsRow]> stats-notes;
     in property <[StatsRow]> stats-breakdown;
+    in property <int> stats-breakdown-count: 0;
     in property <[StatsDayRow]> stats-days;
     in property <string> stats-calendar-month: "";
     in property <[StatsCalendarWeekRow]> stats-calendar;
@@ -1017,6 +1021,10 @@ export component AppWindow inherits Window {
     in property <string> stats-productivity: "→ stabilní";
     in property <int> stats-productivity-direction: 0;
     in-out property <int> stats-tab: 0;
+    in property <string> stats-profile-name: "—";
+    in property <int> stats-profile-index: 0;
+    in property <int> stats-profile-count: 1;
+    in property <bool> stats-profile-active: true;
     in property <[ProfileRow]> profiles;
     in property <float> glow-a-x: 18;
     in property <float> glow-a-y: 24;
@@ -1049,6 +1057,7 @@ export component AppWindow inherits Window {
     callback edit-note(int);
     callback open-obsidian(int);
     callback open-stats;
+    callback shift-stats-profile(int);
     callback shift-stats-calendar(int);
     callback export-report(bool);
     callback open-settings;
@@ -1319,16 +1328,16 @@ export component AppWindow inherits Window {
         Rectangle {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            width: Math.min(parent.width - 40px, 680px);
-            height: Math.min(parent.height - 40px, 520px);
+            width: Math.min(parent.width - 24px, 720px);
+            height: Math.min(parent.height - 24px, 560px);
             border-radius: 16px;
             background: #18181bf8;
             border-width: 1px;
             border-color: #ffffff12;
 
             VerticalLayout {
-                padding: 18px;
-                spacing: 12px;
+                padding: 16px;
+                spacing: 8px;
 
                 HorizontalLayout {
                     height: 30px;
@@ -1336,16 +1345,59 @@ export component AppWindow inherits Window {
                     SmallButton { width: 30px; label: "×"; clicked => { root.stats-open = false; } }
                 }
 
-                HorizontalLayout {
+                Rectangle {
+                    height: 38px;
+                    border-radius: 9px;
+                    background: #202024;
+                    border-width: 1px;
+                    border-color: root.stats-profile-active ? #34d39955 : #ffffff0d;
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 6px;
+                        Text { width: 48px; text: I18n.tr(I18n.language, "profileName"); color: #71717a; font-size: 9px; vertical-alignment: center; }
+                        SmallButton { width: 28px; height: 26px; label: "‹"; enabled: root.stats-profile-index > 0; clicked => root.shift-stats-profile(-1); }
+                        Text { text: root.stats-profile-name; color: #f4f4f5; font-size: 12px; font-weight: 650; overflow: elide; vertical-alignment: center; }
+                        if root.stats-profile-active : Rectangle {
+                            width: 52px;
+                            height: 20px;
+                            border-radius: 10px;
+                            background: #064e3b99;
+                            Text { text: I18n.tr(I18n.language, "active"); color: #6ee7b7; font-size: 8px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                        Text { width: 34px; text: (root.stats-profile-index + 1) + "/" + root.stats-profile-count; color: #71717a; font-size: 9px; horizontal-alignment: center; vertical-alignment: center; }
+                        SmallButton { width: 28px; height: 26px; label: "›"; enabled: root.stats-profile-index + 1 < root.stats-profile-count; clicked => root.shift-stats-profile(1); }
+                    }
+                }
+
+                if !root.compact : HorizontalLayout {
                     height: 28px;
                     spacing: 5px;
-                    SmallButton { width: 85px; height: 28px; label: I18n.tr(I18n.language, "perNote"); active: root.stats-tab == 0; clicked => { root.stats-tab = 0; } }
-                    SmallButton { width: 105px; height: 28px; label: I18n.tr(I18n.language, "allDays"); active: root.stats-tab == 1; clicked => { root.stats-tab = 1; } }
-                    SmallButton { width: 85px; height: 28px; label: I18n.tr(I18n.language, "calendar"); active: root.stats-tab == 2; clicked => { root.stats-tab = 2; } }
-                    SmallButton { width: 80px; height: 28px; label: I18n.tr(I18n.language, "trends"); active: root.stats-tab == 3; clicked => { root.stats-tab = 3; } }
-                    SmallButton { width: 95px; height: 28px; label: I18n.tr(I18n.language, "correlationsAndInsights"); active: root.stats-tab == 4; clicked => { root.stats-tab = 4; } }
-                    SmallButton { width: 85px; height: 28px; label: I18n.tr(I18n.language, "breakdown"); active: root.stats-tab == 5; clicked => { root.stats-tab = 5; } }
-                    Rectangle { horizontal-stretch: 1; }
+                    SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "perNote"); active: root.stats-tab == 0; clicked => { root.stats-tab = 0; } }
+                    SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "allDays"); active: root.stats-tab == 1; clicked => { root.stats-tab = 1; } }
+                    SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "calendar"); active: root.stats-tab == 2; clicked => { root.stats-tab = 2; } }
+                    SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "trends"); active: root.stats-tab == 3; clicked => { root.stats-tab = 3; } }
+                    SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "correlationsAndInsights"); active: root.stats-tab == 4; clicked => { root.stats-tab = 4; } }
+                    SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "breakdown"); active: root.stats-tab == 5; clicked => { root.stats-tab = 5; } }
+                }
+
+                if root.compact : VerticalLayout {
+                    height: 61px;
+                    spacing: 5px;
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 5px;
+                        SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "perNote"); active: root.stats-tab == 0; clicked => { root.stats-tab = 0; } }
+                        SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "allDays"); active: root.stats-tab == 1; clicked => { root.stats-tab = 1; } }
+                        SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "calendar"); active: root.stats-tab == 2; clicked => { root.stats-tab = 2; } }
+                    }
+                    HorizontalLayout {
+                        height: 28px;
+                        spacing: 5px;
+                        SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "trends"); active: root.stats-tab == 3; clicked => { root.stats-tab = 3; } }
+                        SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "correlationsAndInsights"); active: root.stats-tab == 4; clicked => { root.stats-tab = 4; } }
+                        SmallButton { horizontal-stretch: 1; height: 28px; label: I18n.tr(I18n.language, "breakdown"); active: root.stats-tab == 5; clicked => { root.stats-tab = 5; } }
+                    }
                 }
 
                 if root.stats-tab < 2 : HorizontalLayout {
@@ -1406,55 +1458,89 @@ export component AppWindow inherits Window {
                     Text { text: I18n.tr(I18n.language, "longest") + " " + root.stats-longest; color: #71717a; font-size: 10px; vertical-alignment: center; }
                 }
 
-                if root.stats-tab == 0 : ListView {
+                if root.stats-tab == 0 && root.stats-count > 0 : ListView {
                     for item in root.stats-notes : Rectangle {
-                        height: 38px;
-                        border-radius: 7px;
-                        background: #202024;
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            Text { text: item.name; color: #d4d4d8; font-size: 11px; overflow: elide; vertical-alignment: center; }
-                            Text { text: item.count + "×"; color: #52525b; font-size: 10px; vertical-alignment: center; }
-                            Text { text: item.duration; color: #34d399; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                        height: 42px;
+                        background: transparent;
+                        Rectangle {
+                            height: 38px;
+                            border-radius: 7px;
+                            background: #202024;
+                            border-width: 1px;
+                            border-color: #ffffff08;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 8px;
+                                Text { text: item.name; color: #d4d4d8; font-size: 11px; overflow: elide; vertical-alignment: center; }
+                                Text { text: item.count + "×"; color: #71717a; font-size: 10px; vertical-alignment: center; }
+                                Text { text: item.duration; color: #34d399; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                            }
                         }
                     }
+                }
+                if root.stats-tab == 0 && root.stats-count == 0 : Text {
+                    text: I18n.tr(I18n.language, "noData");
+                    color: #52525b;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
                 }
                 if root.stats-tab == 1 : ListView {
                     for day in root.stats-days : Rectangle {
-                        height: 38px;
-                        border-radius: 7px;
-                        background: #202024;
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            spacing: 9px;
-                            Text { width: 58px; text: day.date; color: #a1a1aa; font-size: 10px; vertical-alignment: center; }
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                height: 5px;
-                                border-radius: 3px;
-                                background: #3f3f46;
-                                Rectangle { width: parent.width * day.progress; height: parent.height; border-radius: 3px; background: day.goal-met ? #10b981 : #38bdf8; }
+                        height: 42px;
+                        background: transparent;
+                        Rectangle {
+                            height: 38px;
+                            border-radius: 7px;
+                            background: #202024;
+                            border-width: 1px;
+                            border-color: #ffffff08;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 9px;
+                                Text { width: 58px; text: day.date; color: #a1a1aa; font-size: 10px; vertical-alignment: center; }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 5px;
+                                    border-radius: 3px;
+                                    background: #3f3f46;
+                                    Rectangle { width: parent.width * day.progress; height: parent.height; border-radius: 3px; background: day.goal-met ? #10b981 : #38bdf8; }
+                                }
+                                Text { width: 72px; text: day.duration; color: day.goal-met ? #34d399 : #d4d4d8; font-size: 10px; font-weight: 600; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 16px; text: day.goal-met ? "✓" : ""; color: #34d399; font-size: 11px; vertical-alignment: center; }
                             }
-                            Text { width: 72px; text: day.duration; color: day.goal-met ? #34d399 : #d4d4d8; font-size: 10px; font-weight: 600; horizontal-alignment: right; vertical-alignment: center; }
-                            Text { width: 16px; text: day.goal-met ? "✓" : ""; color: #34d399; font-size: 11px; vertical-alignment: center; }
                         }
                     }
                 }
-                if root.stats-tab == 5 : ListView {
+                if root.stats-tab == 5 && root.stats-breakdown-count > 0 : ListView {
                     for item in root.stats-breakdown : Rectangle {
-                        height: 40px;
-                        border-radius: 7px;
-                        background: #202024;
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            Text { text: item.name; color: #d4d4d8; font-size: 11px; overflow: elide; vertical-alignment: center; }
-                            Text { text: item.count + "×"; color: #52525b; font-size: 10px; vertical-alignment: center; }
-                            Text { text: item.duration; color: #a78bfa; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                        height: 44px;
+                        background: transparent;
+                        Rectangle {
+                            height: 40px;
+                            border-radius: 7px;
+                            background: #202024;
+                            border-width: 1px;
+                            border-color: #ffffff08;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 8px;
+                                Text { text: item.name; color: #d4d4d8; font-size: 11px; overflow: elide; vertical-alignment: center; }
+                                Text { text: item.count + "×"; color: #71717a; font-size: 10px; vertical-alignment: center; }
+                                Text { text: item.duration; color: #a78bfa; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                            }
                         }
                     }
+                }
+                if root.stats-tab == 5 && root.stats-breakdown-count == 0 : Text {
+                    text: I18n.tr(I18n.language, "noData");
+                    color: #52525b;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
                 }
                 if root.stats-tab == 2 : VerticalLayout {
                     spacing: 6px;
@@ -1525,9 +1611,10 @@ export component AppWindow inherits Window {
                 }
                 HorizontalLayout {
                     height: 32px;
+                    spacing: 6px;
                     Rectangle { horizontal-stretch: 1; }
-                    SmallButton { width: 130px; label: I18n.tr(I18n.language, "exportWeeklyReport"); clicked => root.export-report(false); }
-                    SmallButton { width: 130px; label: I18n.tr(I18n.language, "exportMonthlyReport"); clicked => root.export-report(true); }
+                    SmallButton { width: 142px; label: I18n.tr(I18n.language, "exportWeeklyReport"); clicked => root.export-report(false); }
+                    SmallButton { width: 142px; label: I18n.tr(I18n.language, "exportMonthlyReport"); clicked => root.export-report(true); }
                 }
             }
         }

@@ -67,13 +67,14 @@ impl AppState {
             .vault_path
             .as_deref()
             .ok_or_else(|| "Nejdřív vyberte složku s poznámkami.".to_owned())?;
+        let stats_field_keys = indexed_stats_field_keys(&self.config);
         let scan = self
             .note_index
             .scan(
                 root,
                 &self.config.frontmatter_key,
                 &self.config.time_estimate_key,
-                &self.config.stats_field_keys,
+                &stats_field_keys,
             )
             .map_err(|error| error.to_string())?;
         self.index_cache_hits = self.note_index.cache_hits();
@@ -285,6 +286,18 @@ impl AppState {
     }
 }
 
+pub(crate) fn indexed_stats_field_keys(config: &AppConfig) -> Vec<String> {
+    let mut keys = config.stats_field_keys.clone();
+    for profile in config.available_profiles() {
+        for key in profile.stats_field_keys {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+    }
+    keys
+}
+
 #[cfg(test)]
 pub fn note_rows(state: &AppState) -> ModelRc<NoteRow> {
     ModelRc::from(state.note_model.clone())
@@ -413,6 +426,10 @@ pub fn set_status(ui: &AppWindow, message: impl Into<SharedString>, error: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn timer(path: &str) -> NativeTimer {
         NativeTimer::new(
@@ -503,5 +520,35 @@ mod tests {
         assert!(state.load_more_notes());
         assert_eq!(model.row_count(), NOTE_PAGE_SIZE * 3);
         assert!(state.has_more_notes());
+    }
+
+    #[test]
+    fn indexes_stat_fields_used_by_every_profile() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let vault = std::env::temp_dir().join(format!("mmst-profile-fields-{nonce}"));
+        fs::create_dir_all(&vault).expect("create profile fixture");
+        let active = AppConfig {
+            vault_path: Some(vault.clone()),
+            nick: Some("alpha".into()),
+            stats_field_keys: vec!["project".into(), "client".into()],
+            ..AppConfig::default()
+        };
+        active.save_profile().expect("save active profile");
+        let secondary = AppConfig {
+            vault_path: Some(vault.clone()),
+            nick: Some("beta".into()),
+            stats_field_keys: vec!["client".into(), "department".into()],
+            ..AppConfig::default()
+        };
+        secondary.save_profile().expect("save secondary profile");
+
+        assert_eq!(
+            indexed_stats_field_keys(&active),
+            ["project", "client", "department"]
+        );
+        fs::remove_dir_all(vault).expect("remove profile fixture");
     }
 }
