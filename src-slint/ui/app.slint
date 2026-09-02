@@ -817,17 +817,10 @@ component NoteCard inherits Rectangle {
     cache-rendering-hint: true;
     background: !scrolling && touch.has-hover ? #29292ed9 : note.active ? #202327f0 : note.pinned ? #202024e8 : #18181bd9;
     border-width: 1px;
-    border-color: note.active ? #64748b99 : #ffffff0d;
+    border-color: note.active ? #818cf899 : note.pinned ? #6366f166 : #ffffff0d;
     clip: true;
     animate background { duration: 150ms; easing: ease-out; }
     animate border-color { duration: 180ms; easing: ease-out; }
-
-    Rectangle {
-        width: 2px;
-        height: parent.height;
-        background: root.note.active ? #818cf8 : root.note.pinned ? #6366f1 : #64748b;
-        opacity: root.note.active || root.note.pinned ? 0.9 : 0.55;
-    }
 
     touch := TouchArea { clicked => root.open(); }
     VerticalLayout {
