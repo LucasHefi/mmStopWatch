@@ -14,6 +14,7 @@ export struct NoteRow {
     tags: string,
     pinned: bool,
     active: bool,
+    accent: color,
 }
 
 export struct TimerRow {
@@ -817,7 +818,7 @@ component NoteCard inherits Rectangle {
     cache-rendering-hint: true;
     background: !scrolling && touch.has-hover ? #29292ed9 : note.active ? #202327f0 : note.pinned ? #202024e8 : #18181bd9;
     border-width: 1px;
-    border-color: note.active ? #818cf899 : note.pinned ? #6366f166 : #ffffff0d;
+    border-color: note.active ? note.accent : note.pinned ? #6366f166 : #ffffff0d;
     clip: true;
     animate background { duration: 150ms; easing: ease-out; }
     animate border-color { duration: 180ms; easing: ease-out; }

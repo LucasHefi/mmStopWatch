@@ -146,9 +146,14 @@ impl AppState {
 
     fn note_row(&self, position: usize) -> Option<NoteRow> {
         let note = self.notes.get(*self.visible_notes.get(position)?)?;
+        let note_path = note.path.to_string_lossy();
+        let active_timer = self
+            .timers
+            .iter()
+            .find(|timer| timer.note_path == note_path.as_ref());
         Some(NoteRow {
             name: note.name.clone().into(),
-            path: note.path.to_string_lossy().into_owned().into(),
+            path: note_path.clone().into_owned().into(),
             relative_path: note.relative_path.clone().into(),
             duration: format_time(note.duration_ms).into(),
             // Preview remains in the Rust index and is fetched only on demand.
@@ -165,11 +170,11 @@ impl AppState {
                 .config
                 .pinned_notes
                 .iter()
-                .any(|path| path == &note.path.to_string_lossy()),
-            active: self
-                .timers
-                .iter()
-                .any(|timer| timer.note_path == note.path.to_string_lossy()),
+                .any(|path| path == note_path.as_ref()),
+            active: active_timer.is_some(),
+            accent: active_timer
+                .map(|timer| timer.color)
+                .unwrap_or_else(|| slint::Color::from_rgb_u8(100, 116, 139)),
         })
     }
 
@@ -441,6 +446,34 @@ mod tests {
             ["a.md", "b.md", "new.md"]
         );
         assert!(!state.move_timer(0, -1));
+    }
+
+    #[test]
+    fn active_note_uses_its_timer_color() {
+        let mut state = AppState::new(AppConfig::default(), true);
+        let accent = slint::Color::from_rgb_u8(52, 211, 153);
+        state.notes = vec![Note {
+            path: PathBuf::from("active.md"),
+            name: "Active".into(),
+            relative_path: "active.md".into(),
+            duration_ms: 0,
+            preview: String::new(),
+            tags: Vec::new(),
+            time_estimate_minutes: None,
+            fields: std::collections::HashMap::new(),
+        }];
+        state.timers = vec![NativeTimer::new(
+            "active.md".into(),
+            "Active".into(),
+            0,
+            None,
+            accent,
+        )];
+        state.apply_filter();
+
+        let row = state.note_model.row_data(0).expect("active note row");
+        assert!(row.active);
+        assert_eq!(row.accent, accent);
     }
 
     #[test]
