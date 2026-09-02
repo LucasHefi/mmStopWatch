@@ -9,7 +9,7 @@ use std::{
 };
 use walkdir::{DirEntry, WalkDir};
 
-const INDEX_SCHEMA_VERSION: i64 = 1;
+const INDEX_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Clone, Debug)]
 pub struct Note {
@@ -679,15 +679,13 @@ fn parse_note_file(
         ));
     }
     let tags = frontmatter
-        .and_then(|yaml| frontmatter_value(yaml, "tags"))
-        .map(parse_tags)
+        .map(|yaml| frontmatter_values(yaml, "tags"))
         .unwrap_or_default();
     let fields = field_keys
         .iter()
         .filter_map(|field| {
             let values = frontmatter
-                .and_then(|yaml| frontmatter_value(yaml, field))
-                .map(parse_tags)
+                .map(|yaml| frontmatter_values(yaml, field))
                 .unwrap_or_default();
             (!values.is_empty()).then(|| (field.clone(), values))
         })
@@ -726,6 +724,39 @@ fn parse_tags(value: &str) -> Vec<String> {
         .take(8)
         .map(str::to_owned)
         .collect()
+}
+
+fn frontmatter_values(yaml: &str, key: &str) -> Vec<String> {
+    let lines = yaml.lines().collect::<Vec<_>>();
+    for (index, line) in lines.iter().enumerate() {
+        let Some((candidate, value)) = line.split_once(':') else {
+            continue;
+        };
+        if candidate.trim() != key {
+            continue;
+        }
+        let value = value.trim();
+        if !value.is_empty() {
+            return parse_tags(value);
+        }
+
+        return lines[index + 1..]
+            .iter()
+            .map(|line| line.trim())
+            .take_while(|line| line.is_empty() || line.starts_with('-'))
+            .filter_map(|line| line.strip_prefix('-'))
+            .map(|value| {
+                value
+                    .trim()
+                    .trim_matches(['\'', '"'])
+                    .trim_start_matches('#')
+            })
+            .filter(|value| !value.is_empty())
+            .take(8)
+            .map(str::to_owned)
+            .collect();
+    }
+    Vec::new()
 }
 
 pub fn write_total_duration(path: &Path, key: &str, total_ms: u64) -> io::Result<()> {
@@ -1008,6 +1039,21 @@ mod tests {
         assert_eq!(parse_time_ms("12:34"), Some(754_000));
         assert_eq!(parse_time_ms("90"), Some(90_000));
         assert_eq!(parse_time_ms("00:61"), None);
+    }
+
+    #[test]
+    fn parses_inline_and_block_frontmatter_lists() {
+        assert_eq!(
+            frontmatter_values("tags: [task, aktrinec]", "tags"),
+            ["task", "aktrinec"]
+        );
+        assert_eq!(
+            frontmatter_values(
+                "title: Test\ntags:\n  - task\n  - aktrinec\nstatus: active",
+                "tags"
+            ),
+            ["task", "aktrinec"]
+        );
     }
 
     #[test]

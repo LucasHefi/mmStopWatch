@@ -813,39 +813,62 @@ component NoteCard inherits Rectangle {
     callback preview;
     callback edit;
     callback obsidian;
-    height: 104px;
-    border-radius: 12px;
+    height: 112px;
+    background: transparent;
     cache-rendering-hint: true;
-    background: !scrolling && touch.has-hover ? #29292ed9 : note.active ? #202327f0 : note.pinned ? #202024e8 : #18181bd9;
-    border-width: 1px;
-    border-color: note.active ? note.accent : note.pinned ? #6366f166 : #ffffff0d;
-    clip: true;
-    animate background { duration: 150ms; easing: ease-out; }
-    animate border-color { duration: 180ms; easing: ease-out; }
 
-    touch := TouchArea { clicked => root.open(); }
-    VerticalLayout {
-        padding-left: 13px;
-        padding-right: 10px;
-        padding-top: 9px;
-        padding-bottom: 9px;
-        spacing: 5px;
-        HorizontalLayout {
-            height: 16px;
-            Text { text: root.note.relative-path; color: #71717a; font-size: 10px; overflow: elide; vertical-alignment: center; }
-            SmallButton { width: 25px; height: 20px; label: root.note.pinned ? "◆" : "◇"; active: root.note.pinned; clicked => root.pin(); }
-        }
-        HorizontalLayout {
-            height: 21px;
-            Text { text: root.note.name; color: #f4f4f5; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
-            Text { text: root.note.active ? "▶  " + root.note.duration : root.note.duration; color: root.note.active ? #818cf8 : #d4d4d8; font-size: 12px; font-weight: 600; vertical-alignment: center; }
-        }
-        HorizontalLayout {
-            height: 24px;
-            Text { text: root.note.tags; color: #a1a1aa; font-size: 10px; overflow: elide; vertical-alignment: center; }
-            SmallButton { width: 26px; height: 23px; label: "✎"; clicked => root.edit(); }
-            SmallButton { width: 26px; height: 23px; label: "◉"; clicked => root.preview(); }
-            SmallButton { width: 26px; height: 23px; label: "↗"; clicked => root.obsidian(); }
+    card := Rectangle {
+        width: parent.width;
+        height: 104px;
+        border-radius: 12px;
+        background: !root.scrolling && touch.has-hover ? #29292ed9 : root.note.active ? #202327f0 : root.note.pinned ? #202024e8 : #18181bd9;
+        border-width: 1px;
+        border-color: root.note.active ? root.note.accent : root.note.pinned ? #6366f166 : #ffffff0d;
+        clip: true;
+        animate background { duration: 150ms; easing: ease-out; }
+        animate border-color { duration: 180ms; easing: ease-out; }
+
+        touch := TouchArea { clicked => root.open(); }
+        VerticalLayout {
+            padding-left: 13px;
+            padding-right: 10px;
+            padding-top: 9px;
+            padding-bottom: 9px;
+            spacing: 5px;
+            HorizontalLayout {
+                height: 16px;
+                Text { text: root.note.relative-path; color: #71717a; font-size: 10px; overflow: elide; vertical-alignment: center; }
+                SmallButton { width: 25px; height: 20px; label: root.note.pinned ? "◆" : "◇"; active: root.note.pinned; clicked => root.pin(); }
+            }
+            HorizontalLayout {
+                height: 21px;
+                Text { text: root.note.name; color: #f4f4f5; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
+                Text { text: root.note.active ? "▶  " + root.note.duration : root.note.duration; color: root.note.active ? root.note.accent : #d4d4d8; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+            }
+            HorizontalLayout {
+                height: 24px;
+                spacing: 4px;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 22px;
+                    border-radius: 5px;
+                    background: root.note.tags == "" ? transparent : #27272acc;
+                    border-width: root.note.tags == "" ? 0px : 1px;
+                    border-color: #ffffff0a;
+                    Text {
+                        x: 6px;
+                        width: parent.width - 12px;
+                        text: root.note.tags;
+                        color: #a1a1aa;
+                        font-size: 9px;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+                SmallButton { width: 26px; height: 23px; label: "✎"; clicked => root.edit(); }
+                SmallButton { width: 26px; height: 23px; label: "◉"; clicked => root.preview(); }
+                SmallButton { width: 26px; height: 23px; label: "↗"; clicked => root.obsidian(); }
+            }
         }
     }
 }

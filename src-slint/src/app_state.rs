@@ -162,9 +162,9 @@ impl AppState {
                 .tags
                 .iter()
                 .take(3)
-                .cloned()
+                .map(|tag| format!("#{}", tag.trim_start_matches('#')))
                 .collect::<Vec<_>>()
-                .join("  ")
+                .join("  ·  ")
                 .into(),
             pinned: self
                 .config
