@@ -191,8 +191,10 @@ component TimerCard inherits Rectangle {
 
     Rectangle {
         x: 0;
+        y: 12px;
         width: 4px;
-        height: parent.height;
+        height: parent.height - 24px;
+        border-radius: 2px;
         background: root.timer.color;
     }
     Rectangle {
