@@ -334,6 +334,7 @@ component TimerTableRow inherits Rectangle {
     cache-rendering-hint: true;
 
     row := Rectangle {
+        y: 2px;
         height: 58px;
         border-radius: 10px;
         background: touch.has-hover ? #202024e8 : #18181bd9;
@@ -347,18 +348,35 @@ component TimerTableRow inherits Rectangle {
             padding-left: 12px;
             padding-right: 10px;
             spacing: 8px;
-            Rectangle { width: 3px; height: 34px; border-radius: 2px; background: root.timer.color; }
+            Rectangle {
+                width: 3px;
+                height: parent.height;
+                background: transparent;
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 3px;
+                    height: 34px;
+                    border-radius: 2px;
+                    background: root.timer.color;
+                }
+            }
             Text { horizontal-stretch: 1; text: root.timer.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; }
             Text { width: 96px; text: root.timer.estimate-minutes > 0 ? root.timer.estimate-minutes + " min" : "—"; color: #71717a; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
             Text { width: 124px; text: root.timer.elapsed; color: #fafafa; font-family: "monospace"; font-size: 16px; font-weight: 700; horizontal-alignment: right; vertical-alignment: center; }
-            HorizontalLayout {
+            Rectangle {
                 width: 178px;
-                spacing: 6px;
-                SmallButton { width: 26px; height: 34px; label: "↑"; clicked => root.move(-1); }
-                SmallButton { width: 26px; height: 34px; label: "↓"; clicked => root.move(1); }
-                RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
-                RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
-                SmallButton { width: 30px; height: 34px; label: "×"; danger: true; clicked => root.discard(); }
+                height: parent.height;
+                background: transparent;
+                HorizontalLayout {
+                    y: (parent.height - self.height) / 2;
+                    height: 34px;
+                    spacing: 6px;
+                    SmallButton { width: 26px; height: 34px; label: "↑"; clicked => root.move(-1); }
+                    SmallButton { width: 26px; height: 34px; label: "↓"; clicked => root.move(1); }
+                    RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
+                    RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
+                    SmallButton { width: 30px; height: 34px; label: "×"; danger: true; clicked => root.discard(); }
+                }
             }
         }
     }
