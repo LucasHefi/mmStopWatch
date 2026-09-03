@@ -144,6 +144,30 @@ impl AppConfig {
         self.save()
     }
 
+    pub fn restore_selected_profile(&mut self) -> bool {
+        let Some(vault) = self.vault_path.clone() else {
+            return false;
+        };
+        let selected_nick = self.nick.clone();
+        let profiles = self.available_profiles();
+        let selected = selected_nick
+            .as_deref()
+            .and_then(|nick| {
+                profiles
+                    .iter()
+                    .find(|profile| profile.nick.as_deref() == Some(nick))
+                    .cloned()
+            })
+            .or_else(|| profiles.into_iter().next());
+        let Some(mut selected) = selected else {
+            return false;
+        };
+        let selection_changed = selected.nick != selected_nick;
+        selected.vault_path = Some(vault);
+        *self = selected;
+        selection_changed
+    }
+
     pub fn storage_dir(&self) -> Option<PathBuf> {
         let root = self.vault_path.as_ref()?;
         if let Some(nick) = self.nick.as_deref().filter(|nick| valid_profile_key(nick)) {
@@ -370,6 +394,35 @@ mod tests {
             .expect("archive second profile");
         assert!(archived.is_dir());
         assert_eq!(imported.available_profiles().len(), 1);
+        fs::remove_dir_all(vault).expect("remove fixture");
+    }
+
+    #[test]
+    fn restores_the_previously_selected_profile_on_startup() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let vault = std::env::temp_dir().join(format!("mmst-profile-restore-{nonce}"));
+        fs::create_dir_all(&vault).expect("vault fixture");
+
+        let mut alpha = AppConfig {
+            vault_path: Some(vault.clone()),
+            nick: Some("alpha".into()),
+            language: "cs".into(),
+            ..AppConfig::default()
+        };
+        alpha.save_profile().expect("save alpha profile");
+        let mut beta = alpha.clone();
+        beta.nick = Some("beta".into());
+        beta.language = "de".into();
+        beta.save_profile().expect("save beta profile");
+
+        alpha.nick = Some("beta".into());
+        assert!(!alpha.restore_selected_profile());
+        assert_eq!(alpha.nick.as_deref(), Some("beta"));
+        assert_eq!(alpha.language, "de");
+
         fs::remove_dir_all(vault).expect("remove fixture");
     }
 }

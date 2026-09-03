@@ -658,8 +658,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut config = AppConfig::load();
     if let Some(argument) = std::env::args_os().nth(1) {
         let _ = config.adopt_vault(PathBuf::from(argument));
-    } else if let Some(vault) = config.vault_path.clone() {
-        let _ = config.adopt_vault(vault);
+    } else if config.vault_path.is_some() && config.restore_selected_profile() {
+        let _ = config.save();
     }
     if let Ok(columns) = std::env::var("MMSTOPWATCH_PREVIEW_COLUMNS")
         && let Ok(columns) = columns.parse::<usize>()
