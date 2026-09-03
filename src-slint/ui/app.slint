@@ -354,11 +354,11 @@ component TimerTableRow inherits Rectangle {
             HorizontalLayout {
                 width: 178px;
                 spacing: 6px;
-                SmallButton { width: 26px; height: 30px; label: "↑"; clicked => root.move(-1); }
-                SmallButton { width: 26px; height: 30px; label: "↓"; clicked => root.move(1); }
+                SmallButton { width: 26px; height: 34px; label: "↑"; clicked => root.move(-1); }
+                SmallButton { width: 26px; height: 34px; label: "↓"; clicked => root.move(1); }
                 RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
                 RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
-                SmallButton { width: 30px; height: 30px; label: "×"; danger: true; clicked => root.discard(); }
+                SmallButton { width: 30px; height: 34px; label: "×"; danger: true; clicked => root.discard(); }
             }
         }
     }
