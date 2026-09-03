@@ -160,16 +160,21 @@ component StatsProfileTab inherits Rectangle {
         }
         if root.working : Rectangle {
             width: 48px;
-            height: 18px;
-            border-radius: 9px;
-            background: #064e3b99;
-            Text {
-                text: I18n.tr(I18n.language, "active");
-                color: #6ee7b7;
-                font-size: 8px;
-                font-weight: 700;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 18px;
+                border-radius: 9px;
+                background: #064e3b99;
+                Text {
+                    text: I18n.tr(I18n.language, "active");
+                    color: #6ee7b7;
+                    font-size: 8px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
         }
     }
