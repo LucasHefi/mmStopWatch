@@ -666,6 +666,9 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         config.timer_layout.mode = format!("grid-{}", columns.clamp(1, 4));
     }
+    if std::env::var_os("MMSTOPWATCH_PREVIEW_TABLE").is_some() {
+        config.timer_view_mode = "table".into();
+    }
     if let Ok(language) = std::env::var("MMSTOPWATCH_PREVIEW_LANGUAGE")
         && i18n::Catalog::supports(&language)
     {

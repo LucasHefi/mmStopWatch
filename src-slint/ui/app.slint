@@ -329,24 +329,38 @@ component TimerTableRow inherits Rectangle {
     callback save;
     callback discard;
     callback move(int);
-    height: 66px;
-    border-radius: 10px;
-    background: #18181bd9;
-    border-width: 1px;
-    border-color: timer.running ? timer.color : #ffffff0b;
-    HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 10px;
-        spacing: 10px;
-        Rectangle { width: 3px; height: 38px; border-radius: 2px; background: root.timer.color; }
-        Text { horizontal-stretch: 1; text: root.timer.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; }
-        Text { width: 72px; text: root.timer.estimate-minutes > 0 ? root.timer.estimate-minutes + " min" : "—"; color: #71717a; font-size: 10px; vertical-alignment: center; }
-        Text { width: 136px; text: root.timer.elapsed; color: #fafafa; font-size: 17px; font-weight: 700; vertical-alignment: center; }
-        SmallButton { width: 26px; label: "↑"; clicked => root.move(-1); }
-        SmallButton { width: 26px; label: "↓"; clicked => root.move(1); }
-        RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
-        RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
-        SmallButton { width: 30px; label: "×"; danger: true; clicked => root.discard(); }
+    height: 62px;
+    background: transparent;
+    cache-rendering-hint: true;
+
+    row := Rectangle {
+        height: 58px;
+        border-radius: 10px;
+        background: touch.has-hover ? #202024e8 : #18181bd9;
+        border-width: 1px;
+        border-color: root.timer.running ? root.timer.color : #ffffff0b;
+        animate background { duration: 140ms; easing: ease-out; }
+        animate border-color { duration: 180ms; easing: ease-out; }
+        touch := TouchArea { }
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 10px;
+            spacing: 8px;
+            Rectangle { width: 3px; height: 34px; border-radius: 2px; background: root.timer.color; }
+            Text { horizontal-stretch: 1; text: root.timer.name; color: #e4e4e7; font-size: 12px; font-weight: 600; overflow: elide; vertical-alignment: center; }
+            Text { width: 96px; text: root.timer.estimate-minutes > 0 ? root.timer.estimate-minutes + " min" : "—"; color: #71717a; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+            Text { width: 124px; text: root.timer.elapsed; color: #fafafa; font-family: "monospace"; font-size: 16px; font-weight: 700; horizontal-alignment: right; vertical-alignment: center; }
+            HorizontalLayout {
+                width: 178px;
+                spacing: 6px;
+                SmallButton { width: 26px; height: 30px; label: "↑"; clicked => root.move(-1); }
+                SmallButton { width: 26px; height: 30px; label: "↓"; clicked => root.move(1); }
+                RoundAction { width: 34px; height: 34px; label: root.timer.running ? "Ⅱ" : "▶"; accent: root.timer.color; filled: !root.timer.running; clicked => root.toggle(); }
+                RoundAction { width: 34px; height: 34px; label: "✓"; clicked => root.save(); }
+                SmallButton { width: 30px; height: 30px; label: "×"; danger: true; clicked => root.discard(); }
+            }
+        }
     }
 }
 
@@ -1117,8 +1131,6 @@ export component AppWindow inherits Window {
                 padding: 24px;
                 spacing: 10px;
 
-                if root.timer-count > 0 : Rectangle { vertical-stretch: 1.5; background: transparent; }
-
                 HorizontalLayout {
                     height: 30px;
                     spacing: 5px;
@@ -1144,8 +1156,7 @@ export component AppWindow inherits Window {
                 }
 
                 if root.timer-count > 0 && (!root.table-view || root.compact) && (root.layout-columns == 1 || !root.selected-layout-feasible || root.compact) : ListView {
-                    vertical-stretch: 0;
-                    height: Math.min(root.timer-count * 262px, root.preview-height - 128px);
+                    vertical-stretch: 1;
                     for timer[index] in root.timers : TimerCard {
                         timer: timer;
                         row-index: index;
@@ -1159,8 +1170,7 @@ export component AppWindow inherits Window {
                 }
 
                 if root.timer-count > 0 && !root.table-view && !root.compact && root.layout-columns > 1 && root.selected-layout-feasible : ListView {
-                    vertical-stretch: 0;
-                    height: Math.min((root.timer-count / root.layout-columns + 1) * 262px, root.preview-height - 128px);
+                    vertical-stretch: 1;
                     for group[row-index] in root.timer-grid : HorizontalLayout {
                         height: 252px;
                         spacing: 16px;
@@ -1176,14 +1186,18 @@ export component AppWindow inherits Window {
                 }
 
                 if root.timer-count > 0 && root.table-view && !root.compact : VerticalLayout {
+                    vertical-stretch: 1;
                     spacing: 5px;
                     HorizontalLayout {
                         height: 28px;
-                        spacing: 5px;
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        spacing: 8px;
+                        Rectangle { width: 3px; background: transparent; }
                         SmallButton { horizontal-stretch: 1; label: I18n.tr(I18n.language, "profileName") + " ↕"; clicked => root.sort-timers(0); }
-                        SmallButton { width: 100px; label: I18n.tr(I18n.language, "setEstimate") + " ↕"; clicked => root.sort-timers(1); }
-                        SmallButton { width: 130px; label: I18n.tr(I18n.language, "totalTime") + " ↕"; clicked => root.sort-timers(2); }
-                        SmallButton { width: 90px; label: I18n.tr(I18n.language, "active") + " ↕"; clicked => root.sort-timers(3); }
+                        SmallButton { width: 96px; label: I18n.tr(I18n.language, "setEstimate") + " ↕"; clicked => root.sort-timers(1); }
+                        SmallButton { width: 124px; label: I18n.tr(I18n.language, "totalTime") + " ↕"; clicked => root.sort-timers(2); }
+                        SmallButton { width: 178px; label: I18n.tr(I18n.language, "active") + " ↕"; clicked => root.sort-timers(3); }
                     }
                     ListView {
                         for timer[index] in root.timers : TimerTableRow {
@@ -1204,7 +1218,6 @@ export component AppWindow inherits Window {
                     overflow: elide;
                 }
 
-                if root.timer-count > 0 : Rectangle { vertical-stretch: 1; background: transparent; }
             }
         }
 
