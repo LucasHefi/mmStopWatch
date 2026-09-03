@@ -180,7 +180,7 @@ component TimerCard inherits Rectangle {
     callback custom-estimate;
     callback move(int);
     touch := TouchArea { }
-    height: 252px;
+    height: root.timer.estimate-minutes > 0 ? 228px : 188px;
     border-radius: 17px;
     background: touch.has-hover ? #1b1b1fe8 : #151518df;
     border-width: 1px;
@@ -197,9 +197,9 @@ component TimerCard inherits Rectangle {
     }
     Rectangle {
         x: -90px;
-        y: 20px;
+        y: 8px;
         width: 300px;
-        height: 230px;
+        height: parent.height;
         border-radius: 150px;
         background: @radial-gradient(
             circle,
@@ -212,17 +212,17 @@ component TimerCard inherits Rectangle {
         x: parent.width * 0.42;
         y: -110px;
         width: parent.width * 0.72;
-        height: 270px;
+        height: parent.height + 38px;
         border-radius: 135px;
         background: @radial-gradient(circle, #a855f728 0%, #a855f70e 48%, transparent 78%);
     }
 
     VerticalLayout {
-        padding-left: 28px;
-        padding-right: 24px;
-        padding-top: 20px;
-        padding-bottom: 20px;
-        spacing: 10px;
+        padding-left: 24px;
+        padding-right: 20px;
+        padding-top: 14px;
+        padding-bottom: 12px;
+        spacing: 6px;
 
         HorizontalLayout {
             height: 28px;
@@ -241,8 +241,8 @@ component TimerCard inherits Rectangle {
         }
 
         if root.timer.estimate-minutes > 0 : VerticalLayout {
-            height: 38px;
-            spacing: 7px;
+            height: 34px;
+            spacing: 5px;
             HorizontalLayout {
                 spacing: 7px;
                 Text { text: "◷  " + root.timer.estimate-minutes + " min"; color: #a1a1aa; font-size: 11px; vertical-alignment: center; }
@@ -251,7 +251,7 @@ component TimerCard inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
             }
             Rectangle {
-                height: 6px;
+                height: 5px;
                 border-radius: 3px;
                 background: #3f3f46;
                 Rectangle {
@@ -1214,7 +1214,11 @@ export component AppWindow inherits Window {
                 if root.timer-count > 0 && !root.table-view && !root.compact && root.layout-columns > 1 && root.selected-layout-feasible : ListView {
                     vertical-stretch: 1;
                     for group[row-index] in root.timer-grid : HorizontalLayout {
-                        height: 252px;
+                        height: (group.has-a && group.a.estimate-minutes > 0)
+                            || (group.has-b && group.b.estimate-minutes > 0)
+                            || (group.has-c && group.c.estimate-minutes > 0)
+                            || (group.has-d && group.d.estimate-minutes > 0)
+                            ? 228px : 188px;
                         spacing: 16px;
                         if group.has-a : TimerCard { timer: group.a; row-index: row-index * root.layout-columns; toggle => root.toggle-timer(row-index * root.layout-columns); save => root.save-timer(row-index * root.layout-columns); discard => root.discard-timer(row-index * root.layout-columns); set-estimate(minutes) => root.set-timer-estimate(row-index * root.layout-columns, minutes); custom-estimate => { root.custom-estimate-index = row-index * root.layout-columns; root.custom-estimate-value = group.a.estimate-minutes > 0 ? group.a.estimate-minutes : ""; root.custom-estimate-open = true; } move(offset) => root.move-timer(row-index * root.layout-columns, offset); }
                         if !group.has-a : Rectangle { background: transparent; }
