@@ -935,10 +935,10 @@ component StatsTrendBar inherits Rectangle {
     border-radius: 7px;
     background: #18181b;
     HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        spacing: 7px;
-        Text { width: 38px; text: root.trend.label; color: #a1a1aa; font-size: 9px; vertical-alignment: center; }
+        padding-left: root.width < 180px ? 6px : 8px;
+        padding-right: root.width < 180px ? 6px : 8px;
+        spacing: root.width < 180px ? 4px : 7px;
+        Text { width: root.width < 180px ? 22px : 38px; text: root.trend.label; color: #a1a1aa; font-size: 9px; overflow: elide; vertical-alignment: center; }
         Rectangle {
             horizontal-stretch: 1;
             height: 5px;
@@ -946,7 +946,26 @@ component StatsTrendBar inherits Rectangle {
             background: #3f3f46;
             Rectangle { width: parent.width * root.trend.progress; height: parent.height; border-radius: 3px; background: #38bdf8; }
         }
-        Text { width: 66px; text: root.trend.duration; color: #d4d4d8; font-size: 9px; horizontal-alignment: right; vertical-alignment: center; }
+        Text { width: root.width < 180px ? 52px : 66px; text: root.trend.duration; color: #d4d4d8; font-size: root.width < 180px ? 8px : 9px; overflow: elide; horizontal-alignment: right; vertical-alignment: center; }
+    }
+}
+
+component StatsSummaryMetric inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <color> accent: #d4d4d8;
+    border-radius: 7px;
+    background: #202024;
+    border-width: 1px;
+    border-color: #ffffff08;
+    VerticalLayout {
+        padding-left: 7px;
+        padding-right: 7px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: 1px;
+        Text { text: root.label; color: #71717a; font-size: 8px; overflow: elide; horizontal-alignment: center; }
+        Text { text: root.value; color: root.accent; font-size: 10px; font-weight: 650; overflow: elide; horizontal-alignment: center; }
     }
 }
 
@@ -971,8 +990,10 @@ export component AppWindow inherits Window {
     in-out property <bool> table-view: false;
     in-out property <int> layout-columns: 1;
     property <length> viewport-width: 900px;
+    property <length> viewport-height: 600px;
     in property <bool> force-compact: false;
     property <bool> compact: root.viewport-width < 760px || root.force-compact;
+    property <bool> stats-tight: root.viewport-height < 560px;
     in-out property <bool> sidebar-open: false;
     in property <int> note-count: 0;
     in property <int> notes-loaded: 0;
@@ -1070,6 +1091,9 @@ export component AppWindow inherits Window {
 
     changed width => {
         root.viewport-width = root.width;
+    }
+    changed height => {
+        root.viewport-height = root.height;
     }
 
     callback choose-folder;
@@ -1368,17 +1392,17 @@ export component AppWindow inherits Window {
             border-color: #ffffff12;
 
             VerticalLayout {
-                padding: 16px;
-                spacing: 8px;
+                padding: root.stats-tight ? 12px : 16px;
+                spacing: root.stats-tight ? 6px : 8px;
 
                 HorizontalLayout {
-                    height: 30px;
+                    height: root.stats-tight ? 28px : 30px;
                     Text { text: I18n.tr(I18n.language, "statistics"); color: #fafafa; font-size: 18px; font-weight: 700; vertical-alignment: center; }
                     SmallButton { width: 30px; label: "×"; clicked => { root.stats-open = false; } }
                 }
 
                 Rectangle {
-                    height: 38px;
+                    height: root.stats-tight ? 34px : 38px;
                     border-radius: 9px;
                     background: #202024;
                     border-width: 1px;
@@ -1387,7 +1411,7 @@ export component AppWindow inherits Window {
                         padding-left: 6px;
                         padding-right: 6px;
                         spacing: 6px;
-                        Text { width: 48px; text: I18n.tr(I18n.language, "profileName"); color: #71717a; font-size: 9px; vertical-alignment: center; }
+                        if !root.compact : Text { width: 72px; text: I18n.tr(I18n.language, "profileName"); color: #71717a; font-size: 9px; overflow: elide; vertical-alignment: center; }
                         SmallButton { width: 28px; height: 26px; label: "‹"; enabled: root.stats-profile-index > 0; clicked => root.shift-stats-profile(-1); }
                         Text { text: root.stats-profile-name; color: #f4f4f5; font-size: 12px; font-weight: 650; overflow: elide; vertical-alignment: center; }
                         if root.stats-profile-active : Rectangle {
@@ -1433,29 +1457,32 @@ export component AppWindow inherits Window {
                 }
 
                 if root.stats-tab < 2 : HorizontalLayout {
-                    height: 72px;
-                    spacing: 8px;
+                    height: root.stats-tight ? 58px : 72px;
+                    spacing: root.stats-tight ? 6px : 8px;
                     Rectangle {
                         border-radius: 10px; background: #202024;
-                        VerticalLayout { padding: 10px; spacing: 3px; Text { text: I18n.tr(I18n.language, "today"); color: #71717a; font-size: 9px; } Text { text: root.stats-today; color: #34d399; font-size: 16px; font-weight: 700; } }
+                        VerticalLayout { padding: root.stats-tight ? 7px : 10px; spacing: 3px; Text { text: I18n.tr(I18n.language, "today"); color: #71717a; font-size: 9px; overflow: elide; } Text { text: root.stats-today; color: #34d399; font-size: root.stats-tight ? 14px : 16px; font-weight: 700; overflow: elide; } }
                     }
                     Rectangle {
                         border-radius: 10px; background: #202024;
-                        VerticalLayout { padding: 10px; spacing: 3px; Text { text: I18n.tr(I18n.language, "thisWeek"); color: #71717a; font-size: 9px; } Text { text: root.stats-week; color: #38bdf8; font-size: 16px; font-weight: 700; } }
+                        VerticalLayout { padding: root.stats-tight ? 7px : 10px; spacing: 3px; Text { text: I18n.tr(I18n.language, "thisWeek"); color: #71717a; font-size: 9px; overflow: elide; } Text { text: root.stats-week; color: #38bdf8; font-size: root.stats-tight ? 14px : 16px; font-weight: 700; overflow: elide; } }
                     }
                     Rectangle {
                         border-radius: 10px; background: #202024;
-                        VerticalLayout { padding: 10px; spacing: 3px; Text { text: I18n.tr(I18n.language, "thisMonth"); color: #71717a; font-size: 9px; } Text { text: root.stats-month; color: #a78bfa; font-size: 16px; font-weight: 700; } }
+                        VerticalLayout { padding: root.stats-tight ? 7px : 10px; spacing: 3px; Text { text: I18n.tr(I18n.language, "thisMonth"); color: #71717a; font-size: 9px; overflow: elide; } Text { text: root.stats-month; color: #a78bfa; font-size: root.stats-tight ? 14px : 16px; font-weight: 700; overflow: elide; } }
                     }
                 }
 
                 if root.stats-tab < 2 : Rectangle {
-                    height: 44px;
+                    height: root.stats-tight ? 36px : 44px;
                     border-radius: 10px;
                     background: #202024;
                     VerticalLayout {
-                        padding: 9px;
-                        spacing: 5px;
+                        padding-left: 9px;
+                        padding-right: 9px;
+                        padding-top: root.stats-tight ? 6px : 9px;
+                        padding-bottom: root.stats-tight ? 6px : 9px;
+                        spacing: root.stats-tight ? 3px : 5px;
                         HorizontalLayout {
                             Text { text: I18n.tr(I18n.language, "dailyGoal"); color: #a1a1aa; font-size: 10px; }
                             Text { text: Math.round(root.goal-progress * 100) + "%"; color: #34d399; font-size: 10px; font-weight: 700; horizontal-alignment: right; }
@@ -1465,37 +1492,37 @@ export component AppWindow inherits Window {
                 }
 
                 if root.stats-tab < 2 : HorizontalLayout {
-                    height: 48px;
-                    spacing: 8px;
+                    height: root.stats-tight ? 40px : 48px;
+                    spacing: root.stats-tight ? 6px : 8px;
                     Rectangle {
                         border-radius: 9px; background: #202024;
-                        VerticalLayout { padding: 8px; spacing: 2px; Text { text: I18n.tr(I18n.language, "streak"); color: #71717a; font-size: 8px; } Text { text: root.stats-streak + " " + I18n.tr(I18n.language, "streakDays"); color: #fbbf24; font-size: 13px; font-weight: 700; } }
+                        VerticalLayout { padding: root.stats-tight ? 5px : 8px; spacing: 2px; Text { text: I18n.tr(I18n.language, "streak"); color: #71717a; font-size: 8px; overflow: elide; } Text { text: root.stats-streak + " " + I18n.tr(I18n.language, "streakDays"); color: #fbbf24; font-size: root.stats-tight ? 11px : 13px; font-weight: 700; overflow: elide; } }
                     }
                     Rectangle {
                         border-radius: 9px; background: #202024;
-                        VerticalLayout { padding: 8px; spacing: 2px; Text { text: I18n.tr(I18n.language, "consistency"); color: #71717a; font-size: 8px; } Text { text: root.stats-consistency + "%"; color: #34d399; font-size: 13px; font-weight: 700; } }
+                        VerticalLayout { padding: root.stats-tight ? 5px : 8px; spacing: 2px; Text { text: I18n.tr(I18n.language, "consistency"); color: #71717a; font-size: 8px; overflow: elide; } Text { text: root.stats-consistency + "%"; color: #34d399; font-size: root.stats-tight ? 11px : 13px; font-weight: 700; } }
                     }
                     Rectangle {
                         border-radius: 9px; background: #202024;
-                        VerticalLayout { padding: 8px; spacing: 2px; Text { text: I18n.tr(I18n.language, "trend"); color: #71717a; font-size: 8px; } Text { text: (root.stats-weekly-delta > 0 ? "+" : "") + root.stats-weekly-delta + "%"; color: root.stats-weekly-delta >= 0 ? #38bdf8 : #fb7185; font-size: 13px; font-weight: 700; } }
+                        VerticalLayout { padding: root.stats-tight ? 5px : 8px; spacing: 2px; Text { text: I18n.tr(I18n.language, "trend"); color: #71717a; font-size: 8px; overflow: elide; } Text { text: (root.stats-weekly-delta > 0 ? "+" : "") + root.stats-weekly-delta + "%"; color: root.stats-weekly-delta >= 0 ? #38bdf8 : #fb7185; font-size: root.stats-tight ? 11px : 13px; font-weight: 700; } }
                     }
                 }
 
                 if root.stats-tab < 2 : HorizontalLayout {
-                    height: 30px;
-                    spacing: 14px;
-                    Text { text: root.stats-count + " " + I18n.tr(I18n.language, "entries"); color: #a1a1aa; font-size: 11px; vertical-alignment: center; }
-                    Text { text: I18n.tr(I18n.language, "total") + " " + root.stats-total; color: #a1a1aa; font-size: 11px; vertical-alignment: center; }
-                    Text { text: I18n.tr(I18n.language, "average") + " " + root.stats-average; color: #71717a; font-size: 10px; vertical-alignment: center; }
-                    Text { text: I18n.tr(I18n.language, "longest") + " " + root.stats-longest; color: #71717a; font-size: 10px; vertical-alignment: center; }
+                    height: root.stats-tight ? 32px : 38px;
+                    spacing: root.stats-tight ? 4px : 6px;
+                    StatsSummaryMetric { label: I18n.tr(I18n.language, "entries"); value: "" + root.stats-count; }
+                    StatsSummaryMetric { label: I18n.tr(I18n.language, "total"); value: root.stats-total; accent: #34d399; }
+                    StatsSummaryMetric { label: I18n.tr(I18n.language, "average"); value: root.stats-average; accent: #38bdf8; }
+                    StatsSummaryMetric { label: I18n.tr(I18n.language, "longest"); value: root.stats-longest; accent: #a78bfa; }
                 }
 
                 if root.stats-tab == 0 && root.stats-count > 0 : ListView {
                     for item in root.stats-notes : Rectangle {
-                        height: 42px;
+                        height: 44px;
                         background: transparent;
                         Rectangle {
-                            height: 38px;
+                            height: 40px;
                             border-radius: 7px;
                             background: #202024;
                             border-width: 1px;
@@ -1520,10 +1547,10 @@ export component AppWindow inherits Window {
                 }
                 if root.stats-tab == 1 : ListView {
                     for day in root.stats-days : Rectangle {
-                        height: 42px;
+                        height: 44px;
                         background: transparent;
                         Rectangle {
-                            height: 38px;
+                            height: 40px;
                             border-radius: 7px;
                             background: #202024;
                             border-width: 1px;
