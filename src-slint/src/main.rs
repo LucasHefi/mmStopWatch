@@ -287,7 +287,9 @@ fn set_stats_calendar(ui: &AppWindow, calendar: stats::CalendarSnapshot) {
     ui.set_stats_calendar(ModelRc::new(slint::VecModel::from(
         calendar
             .days
-            .chunks_exact(7)
+            .as_chunks::<7>()
+            .0
+            .iter()
             .map(|week| StatsCalendarWeekRow {
                 monday: stats_calendar_day_row(&week[0]),
                 tuesday: stats_calendar_day_row(&week[1]),

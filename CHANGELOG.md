@@ -1,4 +1,8 @@
-# Changelog
+## [1.7.1] - 2026-09-04
+
+### Fixed
+- CI release verification is compatible with the current Rust clippy lint set.
+- Release documentation and package metadata identify the corrected stable hotfix.
 
 ## [1.7.0] - 2026-09-04
 
