@@ -1,47 +1,27 @@
-# mmStopWatch AI control-plane threat model
+# mmStopWatch security model — Slint Native
 
-Status: development/pre-release contract
-Scope: desktop UI, localhost HTTP control plane, MCP stdio adapter, CLI client and selected Markdown vault.
+Status: stable local-first desktop boundary
 
 ## Trust boundaries
 
 | Boundary | Trust level | Required controls |
 | --- | --- | --- |
-| Tauri UI → application services | local application | runtime-selected vault scope, validated relative paths, typed command envelope |
-| MCP/CLI → localhost API | local external client | loopback bind, Bearer token, constant-time comparison, request ID, timeout, safe error envelope |
-| MCP/CLI process → API token | sensitive | environment/config secret store only; never argv, stdout, MCP tool result or diagnostics |
-| API → vault | user data | no static home/drive glob, selected directory only, fail-closed path validation |
-| API/MCP/CLI → mutation | high impact | capability check, explicit confirmation, idempotency/revision handling before write support |
-| Remote network → API | disabled by default | reject non-loopback Host; no remote bind or CORS origin unless explicitly configured |
+| Slint UI → Rust services | local application | typed state transitions, validated input, visible error states |
+| Rust services → selected vault | user data | canonical root containment, relative Markdown path policy, symlink escape rejection |
+| Rust services → local SQLite index | rebuildable cache | schema/version validation, corruption quarantine, Markdown remains source of truth |
+| Explicit update check → GitHub | untrusted remote input | HTTPS allowlist, strict JSON, semver, platform entry, URL and SHA-256 validation |
+| Downloaded installer → operating system | external artifact | user-visible manual installation, checksum comparison, no silent execution |
 
-## Permission matrix
+## Invariants
 
-| Operation | UI | HTTP | MCP | CLI | Current release state |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Status/capabilities | read | read | read | read | implemented |
-| Notes/stats/report read | read | declared read | only status/capabilities advertised; other schemas planned but not exposed | declared client route | backend handlers remain explicit 501 until implemented |
-| Timer read | read | not exposed | planned schema, not advertised | schema, fail-closed | open |
-| Timer mutation | local UI | not exposed | not advertised; no backend call path | confirmation flag, fail-closed | open |
-| Note/profile/config mutation | local UI | not exposed | not advertised; no backend call path | confirmation flag, fail-closed | open |
-| Notifications | local UI | not exposed | status/test schema, fail-closed | not exposed | open |
+1. No remote control plane, telemetry, account or background network polling is packaged.
+2. Only the user-selected vault is readable/writable; relative note paths cannot escape it.
+3. External Markdown changes are detected before a write; no silent overwrite is allowed.
+4. Corrupt config/index/activity data fails visibly or rebuilds from the authoritative source; it is never replaced by an empty success state.
+5. Update metadata is data, not authority: HTML, malformed JSON, wrong host, invalid version, missing platform asset or malformed checksum is rejected.
+6. Update action opens a URL only after the manifest passes validation; the app does not auto-install or restart.
+7. Secrets, private keys, tokens and passwords never appear in source, release assets or logs.
 
-## Security invariants
+## Release boundary
 
-1. The HTTP server binds to `127.0.0.1` only and rejects non-loopback Host headers.
-2. Every HTTP request requires a Bearer token compared in constant time.
-3. Origins are denied unless explicitly allow-listed.
-4. MCP stdout contains only JSON-RPC frames; diagnostics go to stderr.
-5. CLI tokens are accepted only from environment/config and are never command-line arguments.
-6. MCP/CLI transport failures redact bearer/token/secret-like values.
-7. Unknown or currently unsupported commands return explicit errors; they never become silent success or an empty fallback.
-8. Mutating MCP/CLI commands require an explicit confirmation signal before any backend call.
-9. The current read-only API does not grant vault access and does not expose write endpoints.
-10. Network, build and local test evidence do not prove production updater/signing/install readiness.
-
-## Release follow-ups
-
-- Bind the control plane lifecycle to the desktop process or a separately supervised local process.
-- Implement the declared read-only resource handlers and shared application-service adapters.
-- Add stale revision/idempotency enforcement before enabling mutations.
-- Add matching-host Windows/macOS install, startup, uninstall, signing and updater smoke evidence.
-- Keep remote access, production updater metadata and owner approval as separate gates.
+GitHub Release assets are checksummed but this project does not claim OS code-signing or notarization for `v1.7.0`. Users must compare the published checksum before manually running an installer. Future signing/notarization work is a separate release gate, not implied by a checksum.

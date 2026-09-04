@@ -1,9 +1,0 @@
-[Desktop Entry]
-Categories={{categories}}
-Comment={{comment}}
-Exec=/usr/bin/{{exec}}
-Icon={{icon}}
-Name={{name}}
-StartupWMClass=mmstopwatch
-Terminal=false
-Type=Application

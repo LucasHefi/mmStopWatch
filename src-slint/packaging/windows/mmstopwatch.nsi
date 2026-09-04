@@ -1,9 +1,12 @@
 Unicode true
+!ifndef VERSION
+  !error "VERSION must be provided with /DVERSION=<version>"
+!endif
 Name "mmStopWatch Native"
 OutFile "mmStopWatch-Native-${VERSION}-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\mmStopWatch Native"
 RequestExecutionLevel user
-Icon "..\..\..\src-tauri\icons\icon.ico"
+Icon "..\..\assets\icons\icon.ico"
 
 Page directory
 Page instfiles

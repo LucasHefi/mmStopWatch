@@ -590,40 +590,46 @@ fn apply_editable_settings(ui: &AppWindow, config: &mut AppConfig) -> Result<(),
 
 fn present_update_result(ui: &AppWindow, result: Result<updater::UpdateCheck, String>) {
     match result {
-        Ok(update) if update.available && update.download_url.is_some() => {
+        Ok(update)
+            if update.available && update.download_url.is_some() && update.sha256.is_some() =>
+        {
             let language = I18n::get(ui).get_language();
-            let signed = update.signature.is_some();
             let release_note = update.notes.lines().next().unwrap_or_default();
-            let status = if signed {
+            let status = format!(
+                "{}: {} — {} GitHub Release a instalátor spusťte ručně{}",
+                i18n::tr(language.as_str(), "updateAvailable"),
+                update.version,
+                i18n::tr(language.as_str(), "open"),
+                if release_note.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {release_note}")
+                }
+            );
+            ui.set_update_release_url(update.download_url.unwrap_or_default().into());
+            ui.set_updater_status(status.into());
+            ui.set_update_available(true);
+        }
+        Ok(update) if update.available => {
+            ui.set_update_release_url("".into());
+            ui.set_updater_status(
                 format!(
-                    "{}: {}{}",
-                    i18n::tr(language.as_str(), "updateAvailable"),
-                    update.version,
-                    if release_note.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" — {release_note}")
-                    }
-                )
-            } else {
-                format!(
-                    "Verze {} je dostupná, ale server neposkytl podpis balíčku.",
+                    "Verze {} je dostupná, ale pro tuto platformu není ověřený instalátor.",
                     update.version
                 )
-            };
-            ui.set_update_download_url(update.download_url.unwrap_or_default().into());
-            ui.set_updater_status(status.into());
-            ui.set_update_available(signed);
+                .into(),
+            );
+            ui.set_update_available(false);
         }
         Ok(_) => {
-            ui.set_update_download_url("".into());
+            ui.set_update_release_url("".into());
             ui.set_updater_status(
                 i18n::tr(I18n::get(ui).get_language().as_str(), "upToDate").into(),
             );
             ui.set_update_available(false);
         }
         Err(error) => {
-            ui.set_update_download_url("".into());
+            ui.set_update_release_url("".into());
             ui.set_updater_status(error.into());
             ui.set_update_available(false);
         }
@@ -773,15 +779,15 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let weak = ui.as_weak();
-        ui.on_install_update(move || {
+        ui.on_open_update(move || {
             let Some(ui) = weak.upgrade() else { return };
-            let url = ui.get_update_download_url();
+            let url = ui.get_update_release_url();
             if url.is_empty() {
-                set_status(&ui, "Aktualizační balíček není dostupný.", true);
+                set_status(&ui, "Odkaz na GitHub Release není dostupný.", true);
                 return;
             }
             if let Err(error) = open_url(url.as_str()) {
-                set_status(&ui, format!("Aktualizaci nelze otevřít: {error}"), true);
+                set_status(&ui, format!("GitHub Release nelze otevřít: {error}"), true);
             }
         });
     }
@@ -1819,7 +1825,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let weak = ui.as_weak();
         let last_sidebar_scroll = last_sidebar_scroll.clone();
         let mut phase = 0.0_f32;
-        // Match the original React canvas cadence. Driving a long Slint
+        // Keep a stable native UI cadence. Driving a long Slint
         // property animation kept the software renderer repainting at display
         // refresh rate and starved sidebar scrolling on large windows.
         animation_tick.start(TimerMode::Repeated, Duration::from_millis(55), move || {

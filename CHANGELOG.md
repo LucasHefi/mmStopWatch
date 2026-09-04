@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.0] - 2026-09-04
+
+### Changed
+- Stable release is now the standalone Slint/Rust desktop application; the former React/Vite/Tauri/Node product path was removed from the build and release repository.
+- Preserved Markdown vault compatibility, `.mmST-{nick}` profiles, `Timework` frontmatter and `activity.json` data contracts.
+- Moved language catalogues and packaging icons into Slint-owned assets and added platform-specific native packaging.
+- Replaced the obsolete HTML updater endpoint with a strict GitHub Release manifest check and transparent manual installer flow.
+- Release CI now builds only native Slint artifacts and publishes checksums, build metadata and `latest.json`.
+
+### Release boundary
+- Artifacts are checksum-published but are not claimed as OS code-signed or notarized installers.
+- The updater opens a validated release asset for manual installation; it does not download, install or restart the application.
+- Supported platforms are limited to the artifacts successfully produced and verified by the tagged workflow.
+
 ## [1.7.0-rc.5] - 2026-08-30
 
 ### Fixed

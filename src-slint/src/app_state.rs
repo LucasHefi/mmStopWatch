@@ -210,7 +210,7 @@ impl AppState {
         self.apply_timer_order();
     }
 
-    /// Applies the stable note-path order shared with the React/Tauri version.
+    /// Applies the stable note-path order shared with the native application.
     /// Unknown timers stay at the end in their current order.
     pub fn apply_timer_order(&mut self) {
         let order = &self.config.timer_layout.order;

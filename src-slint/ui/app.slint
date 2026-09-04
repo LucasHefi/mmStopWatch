@@ -504,7 +504,7 @@ component OverlayLayer inherits Rectangle {
     callback complete-onboarding;
     callback choose-alert-sound;
     callback check-update;
-    callback install-update;
+    callback open-update;
     background: transparent;
 
     if root.settings-open : Rectangle {
@@ -559,9 +559,10 @@ component OverlayLayer inherits Rectangle {
                             height: 30px;
                             spacing: 6px;
                             SmallButton { width: 180px; label: I18n.tr(I18n.language, "checkForUpdates"); clicked => root.check-update(); }
-                            if root.update-available : SmallButton { width: 170px; label: I18n.tr(I18n.language, "updateInstall"); active: true; clicked => root.install-update(); }
+                            if root.update-available : SmallButton { width: 190px; label: I18n.tr(I18n.language, "open") + " GitHub Release"; active: true; clicked => root.open-update(); }
                         }
                         Text { text: root.updater-status; color: root.update-available ? #34d399 : #52525b; font-size: 9px; overflow: elide; }
+                        Text { text: "Po stažení spusťte instalátor ručně."; color: #52525b; font-size: 9px; overflow: elide; }
                         Rectangle { vertical-stretch: 1; }
                     }
 
@@ -1091,7 +1092,7 @@ export component AppWindow inherits Window {
     in-out property <string> settings-limit-message: "";
     in-out property <string> updater-status: "";
     in-out property <bool> update-available: false;
-    in-out property <string> update-download-url: "";
+    in-out property <string> update-release-url: "";
     in-out property <bool> new-note-open: false;
     in-out property <string> new-note-filename: "";
     in-out property <string> new-note-time: "";
@@ -1193,7 +1194,7 @@ export component AppWindow inherits Window {
     callback complete-onboarding;
     callback choose-alert-sound;
     callback check-update;
-    callback install-update;
+    callback open-update;
     callback load-more-notes;
     callback sidebar-scrolled;
 
@@ -1805,6 +1806,6 @@ export component AppWindow inherits Window {
         complete-onboarding => root.complete-onboarding();
         choose-alert-sound => root.choose-alert-sound();
         check-update => root.check-update();
-        install-update => root.install-update();
+        open-update => root.open-update();
     }
 }

@@ -9,11 +9,21 @@ package_name="mmstopwatch-native_${version}_${architecture}.deb"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
+test -n "$version"
+for command in cargo install dpkg-deb sha256sum; do
+  command -v "$command" >/dev/null
+done
+test -f "$crate_root/packaging/mmstopwatch.desktop"
+test -f "$crate_root/packaging/mmstopwatch.metainfo.xml"
+test -f "$crate_root/packaging/linux/control.template"
+test -f "$crate_root/assets/icons/128x128.png"
+
 cargo build --manifest-path "$crate_root/Cargo.toml" --release --locked
+test -x "$crate_root/target/release/mmstopwatch-slint"
 install -Dm755 "$crate_root/target/release/mmstopwatch-slint" "$stage/usr/bin/mmstopwatch"
 install -Dm644 "$crate_root/packaging/mmstopwatch.desktop" "$stage/usr/share/applications/mmstopwatch.desktop"
 install -Dm644 "$crate_root/packaging/mmstopwatch.metainfo.xml" "$stage/usr/share/metainfo/mmstopwatch.metainfo.xml"
-install -Dm644 "$crate_root/../src-tauri/icons/128x128.png" "$stage/usr/share/icons/hicolor/128x128/apps/mmstopwatch.png"
+install -Dm644 "$crate_root/assets/icons/128x128.png" "$stage/usr/share/icons/hicolor/128x128/apps/mmstopwatch.png"
 
 mkdir -p "$stage/DEBIAN" "$output_dir"
 sed -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$architecture/g" \

@@ -1,6 +1,6 @@
 [package]
 name = "mmstopwatch-slint"
-version = "1.7.0-rc.21"
+version = "1.7.0"
 edition = "2024"
 description = "Lightweight native Slint UI for mmStopWatch"
 license = "MIT"

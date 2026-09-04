@@ -2,47 +2,247 @@ name: Slint native release
 
 on:
   push:
-    tags: ['slint-v*']
+    tags: ['v*']
   workflow_dispatch:
+
+env:
+  SLINT_VERSION: 1.7.0
+  SLINT_MANIFEST: src-slint/Cargo.toml
 
 permissions:
   contents: read
 
 jobs:
-  linux:
-    runs-on: ubuntu-24.04
+  verify:
+    name: Verify (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            os: ubuntu-24.04
+          - platform: macos-arm64
+            os: macos-14
+          - platform: windows-x86_64
+            os: windows-2025
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
-      - run: cargo test --manifest-path src-slint/Cargo.toml --locked
-      - run: cargo clippy --manifest-path src-slint/Cargo.toml --all-targets --locked -- -D warnings
-      - run: bash src-slint/packaging/linux/package-deb.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mmstopwatch-native-linux
-          path: src-slint/target/packages/*
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  windows:
-    runs-on: windows-2025
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --manifest-path src-slint/Cargo.toml --locked
-      - run: cargo clippy --manifest-path src-slint/Cargo.toml --all-targets --locked -- -D warnings
-      - run: cargo build --manifest-path src-slint/Cargo.toml --release --locked
-      - run: choco install nsis --yes --no-progress
-      - shell: pwsh
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
         run: |
-          $version = (Select-String -Path src-slint/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
-          Set-Location src-slint
-          & "$env:ProgramFiles(x86)\NSIS\makensis.exe" "/DVERSION=$version" packaging/windows/mmstopwatch.nsi
-          New-Item -ItemType Directory -Force target/packages | Out-Null
-          $installer = Get-ChildItem -Path . -Recurse -Filter "mmStopWatch-Native-*-setup.exe" | Select-Object -First 1
-          if (-not $installer) { throw "NSIS installer was not generated" }
-          Move-Item $installer.FullName target/packages/
-          Get-FileHash target/packages/*.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } | Set-Content target/packages/SHA256SUMS-windows.txt
-      - uses: actions/upload-artifact@v4
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev libfontconfig1-dev libxkbcommon-dev
+
+      - name: Check macOS arm64 runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: test "$(uname -m)" = arm64
+
+      - name: Check packaging assets
+        shell: bash
+        run: bash src-slint/packaging/check-assets.sh
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-slint/Cargo.toml -- --check
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-slint/Cargo.toml --locked
+
+      - name: Run Rust clippy
+        run: cargo clippy --manifest-path src-slint/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Build Rust release binary
+        run: cargo build --manifest-path src-slint/Cargo.toml --release --locked
+
+  package:
+    name: Package (${{ matrix.platform }})
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-24.04
+          - platform: macos
+            os: macos-14
+          - platform: windows
+            os: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          name: mmstopwatch-native-windows
+          python-version: '3.x'
+
+      - name: Install Linux packaging prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev libfontconfig1-dev libxkbcommon-dev
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            "v${SLINT_VERSION}"|"v${SLINT_VERSION}-"*) ;;
+            *)
+              printf 'Tag %s does not match Slint version %s\n' "$GITHUB_REF_NAME" "$SLINT_VERSION" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Package Linux amd64
+        if: matrix.platform == 'linux'
+        run: |
+          rm -rf src-slint/target/packages
+          mkdir -p src-slint/target/packages
+          MMSTOPWATCH_DEB_ARCH=amd64 bash src-slint/packaging/linux/package-deb.sh
+          python scripts/generate-release-metadata.py \
+            --platform linux \
+            --package-dir src-slint/target/packages \
+            --version "$SLINT_VERSION" \
+            --commit "$GITHUB_SHA" \
+            --ref "$GITHUB_REF_NAME" \
+            --runner "$RUNNER_OS"
+          test "$(find src-slint/target/packages -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3
+          test "$(find src-slint/target/packages -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 0
+
+      - name: Package macOS arm64
+        if: matrix.platform == 'macos'
+        run: |
+          rm -rf src-slint/target/packages
+          mkdir -p src-slint/target/packages
+          bash src-slint/packaging/macos/package-dmg.sh
+          python scripts/generate-release-metadata.py \
+            --platform macos \
+            --package-dir src-slint/target/packages \
+            --version "$SLINT_VERSION" \
+            --commit "$GITHUB_SHA" \
+            --ref "$GITHUB_REF_NAME" \
+            --runner "$RUNNER_OS"
+          rm -rf 'src-slint/target/packages/mmStopWatch Native.app'
+          test "$(find src-slint/target/packages -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 3
+          test "$(find src-slint/target/packages -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 0
+
+      - name: Build Windows release binary
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: cargo build --manifest-path $env:SLINT_MANIFEST --release --locked
+
+      - name: Install NSIS
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install nsis --yes --no-progress
+
+      - name: Package Windows x86_64
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $packageDir = Join-Path $PWD 'src-slint/target/packages'
+          if (Test-Path $packageDir) { Remove-Item -Recurse -Force $packageDir }
+          New-Item -ItemType Directory -Force $packageDir | Out-Null
+          $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS/makensis.exe'
+          if (-not (Test-Path $nsis)) { throw "NSIS compiler was not installed: $nsis" }
+          Push-Location src-slint
+          & $nsis "/DVERSION=$env:SLINT_VERSION" 'packaging/windows/mmstopwatch.nsi'
+          if ($LASTEXITCODE -ne 0) { throw "NSIS packaging failed with exit code $LASTEXITCODE" }
+          $installer = Join-Path $PWD "mmStopWatch-Native-$env:SLINT_VERSION-setup.exe"
+          if (-not (Test-Path $installer)) { throw "NSIS installer was not generated: $installer" }
+          Move-Item $installer (Join-Path $packageDir (Split-Path $installer -Leaf))
+          Pop-Location
+          python scripts/generate-release-metadata.py `
+            --platform windows `
+            --package-dir src-slint/target/packages `
+            --version $env:SLINT_VERSION `
+            --name mmstopwatch-native `
+            --commit $env:GITHUB_SHA `
+            --ref $env:GITHUB_REF_NAME `
+            --runner $env:RUNNER_OS
+          $files = @(Get-ChildItem -LiteralPath $packageDir -File)
+          $directories = @(Get-ChildItem -LiteralPath $packageDir -Directory)
+          if ($files.Count -ne 3 -or $directories.Count -ne 0) { throw "Windows package directory must contain exactly three files" }
+
+      - name: Upload platform package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mmstopwatch-native-${{ matrix.platform }}
           path: src-slint/target/packages/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-packages
+
+      - name: Validate and stage release assets
+        run: |
+          python scripts/prepare-release-assets.py \
+            --artifacts-dir downloaded-packages \
+            --output-dir release-assets \
+            --version "$SLINT_VERSION"
+
+      - name: Generate latest.json
+        run: |
+          python scripts/generate-latest-manifest.py \
+            --staged-dir release-assets \
+            --output release-assets/latest.json \
+            --name mmstopwatch-native \
+            --version "$SLINT_VERSION" \
+            --tag "$GITHUB_REF_NAME" \
+            --repository "$GITHUB_REPOSITORY" \
+            --notes-file docs/release-1.7.0.md
+
+      - name: Assert release asset set
+        shell: bash
+        run: |
+          test "$(find release-assets -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 10
+          test "$(find release-assets -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 0
+          expected='BUILD-METADATA-linux.json BUILD-METADATA-macos.json BUILD-METADATA-windows.json latest.json SHA256SUMS-linux.txt SHA256SUMS-macos.txt SHA256SUMS-windows.txt mmstopwatch-native-1.7.0-linux-amd64.deb mmstopwatch-native-1.7.0-macos-arm64.dmg mmstopwatch-native-1.7.0-windows-x86_64.exe'
+          actual="$(find release-assets -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
+          test "$actual" = "$(printf '%s\n' $expected | sort | tr '\n' ' ' | sed 's/ $//')"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_args=(release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --title "mmStopWatch Native $GITHUB_REF_NAME" --verify-tag)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          if [[ -f docs/release-1.7.0.md ]]; then
+            release_args+=(--notes-file docs/release-1.7.0.md)
+          else
+            release_args+=(--generate-notes)
+          fi
+          gh "${release_args[@]}"

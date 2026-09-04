@@ -350,7 +350,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn imports_existing_react_vault_configuration() {
+    fn imports_existing_vault_configuration() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")

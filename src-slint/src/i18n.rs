@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-const EMBEDDED_CATALOGUES: &str = include_str!("../../src/i18n/translations.ts");
+const EMBEDDED_CATALOGUES: &str = include_str!("../assets/i18n/translations.ts");
 
 pub const LANGUAGES: [&str; 15] = [
     "cs", "en", "de", "pl", "it", "es", "zh", "ja", "ko", "fr", "ru", "pt", "nl", "sv", "ar",
