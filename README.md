@@ -6,68 +6,70 @@
 [![Rust](https://img.shields.io/badge/Rust-2024-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Slint](https://img.shields.io/badge/UI-Slint-2379F4)](https://slint.dev/)
 
-Nativní local-first stopky pro Markdown poznámky a Obsidian vaulty. Aplikace zapisuje čas do frontmatter pole `Timework`, uchovává kompatibilní historii aktivit a pracuje přímo se zvoleným vaultem.
+[English](README.md) · [Čeština](README.cs.md)
 
-## Produktová hranice
+Native, local-first time tracking for Markdown notes and Obsidian vaults. The application writes tracked time to the `Timework` frontmatter field, keeps compatible activity history, and works directly with the selected vault.
 
-Stable produkt je jediná nativní Slint aplikace v `src-slint/`. Nepoužívá React, Vite, DOM, WebView, Tauri ani JavaScript runtime. Data zůstávají lokální a bez účtu, cloudu a telemetrie.
+## Product scope
 
-## Funkce
+The stable product is the single native Slint application in `src-slint/`. It does not use React, Vite, the DOM, WebView, Tauri, or a JavaScript runtime. Data stays local, with no account, cloud service, or telemetry.
 
-- více nezávislých monotónních časomír s pause/resume/save/discard;
-- checkpoint recovery po neočekávaném ukončení bez automatického pokračování;
-- bezpečný atomický zápis Markdownu s detekcí externího konfliktu;
-- rychlý obnovitelný SQLite index nad Markdown zdrojem pravdy;
-- vyhledávání, preview, tagy, pinning, nové poznámky a Obsidian deep-link;
-- profily vaultů, onboarding, cíle, odhady, statistiky, kalendář, reporty a notifikace;
-- 15 vestavěných jazykových katalogů;
-- softwarový renderer s omezenou dekorativní animací a virtualizovaným seznamem.
+## Features
 
-## Ukázky obrazovek
+- multiple independent monotonic timers with pause/resume/save/discard;
+- checkpoint recovery after an unexpected exit without automatic resume;
+- safe atomic Markdown writes with external-conflict detection;
+- a fast, rebuildable SQLite index over the Markdown source of truth;
+- search, previews, tags, pinning, new notes, and Obsidian deep links;
+- vault profiles, onboarding, goals, estimates, statistics, calendar, reports, and notifications;
+- 15 built-in language catalogs;
+- a software renderer with limited decorative animation and a virtualized list.
 
-Níže jsou skutečné snapshoty nativní Slint aplikace z demonstračního vaultu. Všechny názvy projektů, profily, časy, tagy i historie jsou **fiktivní** a nebyla použita žádná uživatelská data.
+## Screenshots
 
-### Časomíry v kartách
+These are real snapshots of the native Slint application using a demonstration vault. All project names, profiles, times, tags, and activity history are **fictional**; no user data was used.
 
-Praktický scénář: několik souběžných bloků práce nad projekty **Atlas** a **Comet**, s odhadem, průběhem a možností pauzy, uložení nebo zahození.
+### Timer cards
 
-![Časomíry mmStopWatch v kartovém rozložení s fiktivními projekty Atlas a Comet](docs/screenshots/demo-dashboard.png)
+Practical example: several concurrent work blocks for the fictional **Atlas** and **Comet** projects, with estimates, progress, and controls for pausing, saving, or discarding a timer.
 
-### Tabulkový přehled časomír
+![mmStopWatch timer cards showing fictional Atlas and Comet projects](docs/screenshots/demo-dashboard.png)
 
-Praktický scénář: rychlé řazení podle názvu, odhadu, celkového času nebo aktivního stavu při práci s více časomírami.
+### Timer table
 
-![Tabulkový přehled časomír mmStopWatch s fiktivními daty](docs/screenshots/demo-table.png)
+Practical example: quickly sort multiple timers by profile name, estimate, total time, or active state.
 
-### Statistiky a rozpad podle polí
+![mmStopWatch timer table showing fictional data](docs/screenshots/demo-table.png)
 
-Praktický scénář: porovnání fiktivních klientů, projektů a typů práce; přehled lze dále přepnout na poznámky, dny, kalendář nebo trendy.
+### Statistics and field breakdown
 
-![Statistiky mmStopWatch s rozpadem podle fiktivních klientů, projektů a typů práce](docs/screenshots/demo-stats-breakdown.png)
+Practical example: compare fictional clients, projects, and work types; the view can also be switched to notes, days, calendar, or trends.
 
-### Nastavení profilu a vaultu
+![mmStopWatch statistics with fictional client, project, and work-type breakdowns](docs/screenshots/demo-stats-breakdown.png)
 
-Praktický scénář: profil `demo`, jazyk, interval automatického obnovení, umístění poznámek a ruční kontrola aktualizací.
+### Profile and vault settings
 
-![Nastavení mmStopWatch s fiktivním profilem demo](docs/screenshots/demo-settings.png)
+Practical example: configure the `demo` profile, language, automatic-refresh interval, notes location, and manual update checks.
 
-Soubory obrázků jsou v [`docs/screenshots/`](docs/screenshots/).
+![mmStopWatch settings with the fictional demo profile](docs/screenshots/demo-settings.png)
 
-## Rychlý start
+The image files are stored in [`docs/screenshots/`](docs/screenshots/).
 
-Požadavky: Rust stable, Cargo a na Linuxu `libfontconfig1-dev` a `libxkbcommon-dev`.
+## Quick start
+
+Requirements: Rust stable, Cargo, and on Linux `libfontconfig1-dev` and `libxkbcommon-dev`.
 
 ```bash
 cargo run --manifest-path src-slint/Cargo.toml --release
 ```
 
-Vault lze předat jako první argument:
+Pass a vault as the first argument:
 
 ```bash
-cargo run --manifest-path src-slint/Cargo.toml --release -- /cesta/k/vaultu
+cargo run --manifest-path src-slint/Cargo.toml --release -- /path/to/vault
 ```
 
-## Lokální ověření
+## Local verification
 
 ```bash
 cargo fmt --manifest-path src-slint/Cargo.toml -- --check
@@ -78,34 +80,34 @@ bash src-slint/packaging/check-assets.sh
 bash src-slint/packaging/linux/package-deb.sh
 ```
 
-`target/` a balíčky jsou generované artefakty; do Git historie nepatří.
+`target/` and packages are generated artifacts and do not belong in Git history.
 
-## Distribuce
+## Distribution
 
-Tag `v1.7.5` a další stable tagy spouštějí [Slint release workflow](.github/workflows/slint-native-release.yml). Workflow ověřuje Rust, sestaví a publikuje platformní instalační balíčky:
+The `v1.7.5` tag and subsequent stable tags trigger the [Slint release workflow](.github/workflows/slint-native-release.yml). The workflow verifies Rust and builds and publishes platform installers:
 
 - Linux x86_64: `.deb`;
 - Windows x86_64: per-user NSIS `.exe`;
-- macOS arm64: `.dmg` s `.app`, pokud macOS runner projde svými gates.
+- macOS arm64: `.dmg` containing an `.app`, provided the macOS runner passes its gates.
 
-Každý GitHub Release obsahuje jednoznačné názvy, checksumy SHA-256, build metadata a `latest.json`. Chybějící nebo duplicitní asset je hard failure. Artefakty nejsou commitovány do repozitáře.
+Each GitHub Release contains unambiguous asset names, SHA-256 checksums, build metadata, and `latest.json`. A missing or duplicate asset is a hard failure. Artifacts are not committed to the repository.
 
-Balíčky nejsou v tomto release vydávány jako podepsané/notarizované OS instalátory. Checksumy chrání stažený obsah před tichou změnou; Windows SmartScreen a macOS Gatekeeper mohou před prvním spuštěním zobrazit varování.
+The installers in this release are not issued as OS-signed or notarized packages. Checksums protect downloaded content against silent changes; Windows SmartScreen and macOS Gatekeeper may show a warning before the first launch.
 
-## Aktualizace
+## Updates
 
-Aplikace provádí pouze explicitní kontrolu veřejného GitHub Release manifestu. Manifest se validuje jako JSON, semver, HTTPS GitHub URL, platformní asset a přesný SHA-256 checksum. Tlačítko otevře stažení instalačního balíčku v systémovém prohlížeči; instalaci uživatel spouští ručně. Aplikace sama balíček nestahuje, neinstaluje ani nerestartuje.
+The application performs only an explicit check of the public GitHub Release manifest. The manifest is validated as JSON with strict semver, an HTTPS GitHub URL, a platform asset, and an exact SHA-256 checksum. The button opens the installer download in the system browser; the user starts the installation manually. The application itself does not download, install, or restart.
 
-## Data a bezpečnost
+## Data and security
 
-- Markdown soubory jsou jediný zdroj pravdy.
-- `config.json` a `activity.json` se ukládají do `.mmST-{nick}` ve zvoleném vaultu.
-- SQLite index je obnovitelná lokální cache mimo synchronizovaný vault.
-- Cesty jsou validované proti zvolenému rootu; traversal, absolutní/UNC cesty, control znaky a symlink escape jsou odmítnuty.
-- Aplikace neposílá data na vzdálený server kromě explicitní kontroly release manifestu.
+- Markdown files are the only source of truth.
+- `config.json` and `activity.json` are stored in `.mmST-{nick}` inside the selected vault.
+- The SQLite index is a rebuildable local cache outside the synchronized vault.
+- Paths are validated against the selected root; traversal, absolute/UNC paths, control characters, and symlink escapes are rejected.
+- The application sends no data to a remote server apart from an explicit release-manifest check.
 
-Podrobnosti jsou v [bezpečnostním modelu](docs/security-threat-model.md) a [acceptance checklistu](docs/acceptance.md).
+See the [security threat model](docs/security-threat-model.md) and [acceptance checklist](docs/acceptance.md) for details.
 
-## Licence
+## License
 
 MIT © [Lukáš Hefner](https://mediamaker.cz)
