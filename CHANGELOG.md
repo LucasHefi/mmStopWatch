@@ -1,3 +1,8 @@
+## [1.7.3] - 2026-09-04
+
+### Fixed
+- Canonicalize watcher event paths against the canonical vault root so refresh works through platform-specific temporary-directory aliases.
+
 ## [1.7.2] - 2026-09-04
 
 ### Fixed

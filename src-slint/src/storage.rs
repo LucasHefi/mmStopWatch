@@ -618,7 +618,13 @@ fn relative_path(root: &Path, path: &Path) -> String {
 }
 
 fn safe_relative_event_path(root: &Path, path: &Path) -> Option<String> {
-    let relative = path.strip_prefix(root).ok()?;
+    let normalized_path = if path.exists() {
+        path.canonicalize().ok()?
+    } else {
+        let parent = path.parent()?.canonicalize().ok()?;
+        parent.join(path.file_name()?)
+    };
+    let relative = normalized_path.strip_prefix(root).ok()?;
     if relative.as_os_str().is_empty()
         || !relative
             .components()
