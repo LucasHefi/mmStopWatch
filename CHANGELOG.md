@@ -1,3 +1,9 @@
+## [1.7.2] - 2026-09-04
+
+### Fixed
+- Normalize vault-relative paths to `/` on every platform so indexed notes and refresh events have one stable storage key.
+
+
 ## [1.7.1] - 2026-09-04
 
 ### Fixed

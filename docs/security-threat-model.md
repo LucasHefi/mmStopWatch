@@ -24,4 +24,4 @@ Status: stable local-first desktop boundary
 
 ## Release boundary
 
-GitHub Release assets are checksummed but this project does not claim OS code-signing or notarization for `v1.7.1`. Users must compare the published checksum before manually running an installer. Future signing/notarization work is a separate release gate, not implied by a checksum.
+GitHub Release assets are checksummed but this project does not claim OS code-signing or notarization for `v1.7.2`. Users must compare the published checksum before manually running an installer. Future signing/notarization work is a separate release gate, not implied by a checksum.

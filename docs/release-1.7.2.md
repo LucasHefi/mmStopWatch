@@ -1,8 +1,8 @@
-# mmStopWatch 1.7.1 — stable Slint release
+# mmStopWatch 1.7.2 — stable Slint release
 
 ## Scope
 
-`v1.7.1` is the corrected stable release of the standalone Slint application. The former browser implementation is not part of this release and is no longer built by CI.
+`v1.7.2` is the corrected stable release of the standalone Slint application. The former browser implementation is not part of this release and is no longer built by CI.
 
 ## Included
 

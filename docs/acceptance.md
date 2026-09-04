@@ -1,4 +1,4 @@
-# mmStopWatch 1.7.1 acceptance checklist
+# mmStopWatch 1.7.2 acceptance checklist
 
 Výsledek každého bodu je `PASS`, `FAIL` nebo `BLOCKED`; evidence musí obsahovat command/log, platformu a případně screenshot.
 

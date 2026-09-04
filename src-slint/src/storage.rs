@@ -614,10 +614,7 @@ fn set_meta(connection: &Connection, key: &str, value: &str) -> io::Result<()> {
 }
 
 fn relative_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
+    portable_path_string(path.strip_prefix(root).unwrap_or(path))
 }
 
 fn safe_relative_event_path(root: &Path, path: &Path) -> Option<String> {
@@ -629,7 +626,11 @@ fn safe_relative_event_path(root: &Path, path: &Path) -> Option<String> {
     {
         return None;
     }
-    Some(relative.to_string_lossy().into_owned())
+    Some(portable_path_string(relative))
+}
+
+fn portable_path_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 fn modified_ns(modified: Option<SystemTime>) -> i64 {
@@ -690,11 +691,7 @@ fn parse_note_file(
             (!values.is_empty()).then(|| (field.clone(), values))
         })
         .collect();
-    let relative_path = path
-        .strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned();
+    let relative_path = portable_path_string(path.strip_prefix(root).unwrap_or(path));
     let name = path
         .file_stem()
         .and_then(|name| name.to_str())
@@ -1031,6 +1028,18 @@ mod tests {
             "mmstopwatch-slint-test-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn normalizes_relative_paths_for_cross_platform_storage() {
+        assert_eq!(
+            portable_path_string(Path::new(r"Project\Task.md")),
+            "Project/Task.md"
+        );
+        assert_eq!(
+            portable_path_string(Path::new("Project/Task.md")),
+            "Project/Task.md"
+        );
     }
 
     #[test]
