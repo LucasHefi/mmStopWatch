@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  SLINT_VERSION: 1.7.3
+  SLINT_VERSION: 1.7.4
   SLINT_MANIFEST: src-slint/Cargo.toml
 
 permissions:
@@ -220,14 +220,14 @@ jobs:
             --version "$SLINT_VERSION" \
             --tag "$GITHUB_REF_NAME" \
             --repository "$GITHUB_REPOSITORY" \
-            --notes-file docs/release-1.7.3.md
+            --notes-file docs/release-1.7.4.md
 
       - name: Assert release asset set
         shell: bash
         run: |
           test "$(find release-assets -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 10
           test "$(find release-assets -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 0
-          expected='BUILD-METADATA-linux.json BUILD-METADATA-macos.json BUILD-METADATA-windows.json latest.json SHA256SUMS-linux.txt SHA256SUMS-macos.txt SHA256SUMS-windows.txt mmstopwatch-native-1.7.3-linux-amd64.deb mmstopwatch-native-1.7.3-macos-arm64.dmg mmstopwatch-native-1.7.3-windows-x86_64.exe'
+          expected='BUILD-METADATA-linux.json BUILD-METADATA-macos.json BUILD-METADATA-windows.json latest.json SHA256SUMS-linux.txt SHA256SUMS-macos.txt SHA256SUMS-windows.txt mmstopwatch-native-1.7.4-linux-amd64.deb mmstopwatch-native-1.7.4-macos-arm64.dmg mmstopwatch-native-1.7.4-windows-x86_64.exe'
           actual="$(find release-assets -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
           test "$actual" = "$(printf '%s\n' $expected | sort | tr '\n' ' ' | sed 's/ $//')"
 
@@ -240,8 +240,8 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             release_args+=(--prerelease)
           fi
-          if [[ -f docs/release-1.7.3.md ]]; then
-            release_args+=(--notes-file docs/release-1.7.3.md)
+          if [[ -f docs/release-1.7.4.md ]]; then
+            release_args+=(--notes-file docs/release-1.7.4.md)
           else
             release_args+=(--generate-notes)
           fi

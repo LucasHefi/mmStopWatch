@@ -1,3 +1,8 @@
+## [1.7.4] - 2026-09-04
+
+### Fixed
+- Keep scan and watcher refresh on one canonical vault-relative path key across macOS and Windows.
+
 ## [1.7.3] - 2026-09-04
 
 ### Fixed

@@ -614,7 +614,13 @@ fn set_meta(connection: &Connection, key: &str, value: &str) -> io::Result<()> {
 }
 
 fn relative_path(root: &Path, path: &Path) -> String {
-    portable_path_string(path.strip_prefix(root).unwrap_or(path))
+    if let Ok(relative) = path.strip_prefix(root) {
+        return portable_path_string(relative);
+    }
+    path.canonicalize()
+        .ok()
+        .and_then(|canonical| canonical.strip_prefix(root).ok().map(portable_path_string))
+        .unwrap_or_else(|| portable_path_string(path))
 }
 
 fn safe_relative_event_path(root: &Path, path: &Path) -> Option<String> {
@@ -697,7 +703,7 @@ fn parse_note_file(
             (!values.is_empty()).then(|| (field.clone(), values))
         })
         .collect();
-    let relative_path = portable_path_string(path.strip_prefix(root).unwrap_or(path));
+    let relative_path = relative_path(root, path);
     let name = path
         .file_stem()
         .and_then(|name| name.to_str())
