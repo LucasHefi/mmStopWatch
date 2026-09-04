@@ -23,6 +23,36 @@ Stable produkt je jediná nativní Slint aplikace v `src-slint/`. Nepoužívá R
 - 15 vestavěných jazykových katalogů;
 - softwarový renderer s omezenou dekorativní animací a virtualizovaným seznamem.
 
+## Ukázky obrazovek
+
+Níže jsou skutečné snapshoty nativní Slint aplikace z demonstračního vaultu. Všechny názvy projektů, profily, časy, tagy i historie jsou **fiktivní** a nebyla použita žádná uživatelská data.
+
+### Časomíry v kartách
+
+Praktický scénář: několik souběžných bloků práce nad projekty **Atlas** a **Comet**, s odhadem, průběhem a možností pauzy, uložení nebo zahození.
+
+![Časomíry mmStopWatch v kartovém rozložení s fiktivními projekty Atlas a Comet](docs/screenshots/demo-dashboard.png)
+
+### Tabulkový přehled časomír
+
+Praktický scénář: rychlé řazení podle názvu, odhadu, celkového času nebo aktivního stavu při práci s více časomírami.
+
+![Tabulkový přehled časomír mmStopWatch s fiktivními daty](docs/screenshots/demo-table.png)
+
+### Statistiky a rozpad podle polí
+
+Praktický scénář: porovnání fiktivních klientů, projektů a typů práce; přehled lze dále přepnout na poznámky, dny, kalendář nebo trendy.
+
+![Statistiky mmStopWatch s rozpadem podle fiktivních klientů, projektů a typů práce](docs/screenshots/demo-stats-breakdown.png)
+
+### Nastavení profilu a vaultu
+
+Praktický scénář: profil `demo`, jazyk, interval automatického obnovení, umístění poznámek a ruční kontrola aktualizací.
+
+![Nastavení mmStopWatch s fiktivním profilem demo](docs/screenshots/demo-settings.png)
+
+Soubory obrázků jsou v [`docs/screenshots/`](docs/screenshots/).
+
 ## Rychlý start
 
 Požadavky: Rust stable, Cargo a na Linuxu `libfontconfig1-dev` a `libxkbcommon-dev`.
