@@ -1,3 +1,8 @@
+## [1.7.5] - 2026-09-04
+
+### Fixed
+- Resolve the Windows NSIS installer from its packaging directory after changing to the Slint crate directory.
+
 ## [1.7.4] - 2026-09-04
 
 ### Fixed
