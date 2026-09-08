@@ -1,0 +1,10 @@
+{
+  "name": "mmstopwatch-mcp",
+  "private": true,
+  "version": "1.7.5",
+  "type": "module",
+  "scripts": {
+    "mcp:stdio": "node server.mjs",
+    "test": "node --test --test-reporter spec *.test.mjs"
+  }
+}
