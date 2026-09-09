@@ -1,6 +1,6 @@
 # mmStopWatch
 
-[![Version](https://img.shields.io/badge/version-1.7.5-2563eb)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.7.6-2563eb)](CHANGELOG.md)
 [![CI](https://github.com/LucasHefi/mmStopWatch/actions/workflows/slint-native-release.yml/badge.svg?branch=main)](https://github.com/LucasHefi/mmStopWatch/actions/workflows/slint-native-release.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
@@ -84,7 +84,7 @@ bash src-slint/packaging/linux/package-deb.sh
 
 ## Distribution
 
-The `v1.7.5` tag and subsequent stable tags trigger the [Slint release workflow](.github/workflows/slint-native-release.yml). The workflow verifies Rust and builds and publishes platform installers:
+The `v1.7.6` tag and subsequent stable tags trigger the [Slint release workflow](.github/workflows/slint-native-release.yml). The workflow verifies Rust and builds and publishes platform installers:
 
 - Linux x86_64: `.deb`;
 - Windows x86_64: per-user NSIS `.exe`;

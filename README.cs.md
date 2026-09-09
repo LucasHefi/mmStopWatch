@@ -1,6 +1,6 @@
 # mmStopWatch
 
-[![Verze](https://img.shields.io/badge/version-1.7.5-2563eb)](CHANGELOG.md)
+[![Verze](https://img.shields.io/badge/version-1.7.6-2563eb)](CHANGELOG.md)
 [![CI](https://github.com/LucasHefi/mmStopWatch/actions/workflows/slint-native-release.yml/badge.svg?branch=main)](https://github.com/LucasHefi/mmStopWatch/actions/workflows/slint-native-release.yml)
 [![Licence: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
@@ -84,7 +84,7 @@ bash src-slint/packaging/linux/package-deb.sh
 
 ## Distribuce
 
-Tag `v1.7.5` a následující stable tagy spouštějí [Slint release workflow](.github/workflows/slint-native-release.yml). Workflow ověří Rust a sestaví a publikuje instalační balíčky pro jednotlivé platformy:
+Tag `v1.7.6` a následující stable tagy spouštějí [Slint release workflow](.github/workflows/slint-native-release.yml). Workflow ověří Rust a sestaví a publikuje instalační balíčky pro jednotlivé platformy:
 
 - Linux x86_64: `.deb`;
 - Windows x86_64: per-user NSIS `.exe`;

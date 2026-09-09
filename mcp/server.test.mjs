@@ -20,7 +20,7 @@ test('id-less initialize stays silent and cannot unlock the session', async () =
 test('MCP lifecycle gates requests, suppresses notifications, and exposes only real tools', async () => {
   const handler = createHandler({ sessionToken: 'test-token' })
   assert.equal((await handler({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).error.code, -32002)
-  assert.deepEqual(await handler(init), { jsonrpc: '2.0', id: 1, result: { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'mmstopwatch', version: '1.7.5' } } })
+  assert.deepEqual(await handler(init), { jsonrpc: '2.0', id: 1, result: { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'mmstopwatch', version: '1.7.6' } } })
   assert.equal(await handler({ jsonrpc: '2.0', method: 'notifications/initialized' }), undefined)
   assert.equal((await handler({ ...init, id: 3 })).error.code, -32600)
   const list = await handler({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} })

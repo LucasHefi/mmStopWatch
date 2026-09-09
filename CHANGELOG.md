@@ -1,3 +1,13 @@
+## [1.7.6] - 2026-09-09
+
+### Fixed
+- MCP stdio initialization now requires a valid JSON-RPC request ID; id-less initialize messages remain silent and cannot unlock a session.
+- Hermes MCP clients using handshake version `2025-11-25` are accepted while the server continues to advertise protocol version `2025-06-18`.
+
+### Verification boundary
+- Local MCP, Rust, packaging and Hermes discovery gates passed for the release candidate.
+- The release workflow must still complete its Linux, macOS and Windows matrix and publish/read back all release assets for this version.
+
 ## [1.7.5] - 2026-09-04
 
 ### Fixed
