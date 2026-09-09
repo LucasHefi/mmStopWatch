@@ -8,6 +8,15 @@ import { createHandler, PROTOCOL_VERSION, run } from './server.mjs'
 const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, clientInfo: { name: 'test', version: '1' }, capabilities: {} } }
 const ready = async handler => { await handler(init); await handler({ jsonrpc: '2.0', method: 'notifications/initialized' }) }
 
+test('id-less initialize stays silent and cannot unlock the session', async () => {
+  const handler = createHandler({ sessionToken: 'test-token' })
+  const idlessInit = { ...init }
+  delete idlessInit.id
+  assert.equal(await handler(idlessInit), undefined)
+  assert.equal(await handler({ jsonrpc: '2.0', method: 'notifications/initialized' }), undefined)
+  assert.equal((await handler({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).error.code, -32002)
+})
+
 test('MCP lifecycle gates requests, suppresses notifications, and exposes only real tools', async () => {
   const handler = createHandler({ sessionToken: 'test-token' })
   assert.equal((await handler({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).error.code, -32002)
