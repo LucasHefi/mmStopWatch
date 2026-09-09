@@ -20,6 +20,15 @@ test('MCP lifecycle gates requests, suppresses notifications, and exposes only r
   assert.equal((await handler({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'mmstopwatch_status', arguments: {} } })).result.isError, true)
 })
 
+test('negotiates the Hermes initialize protocol version while rejecting unsupported versions', async () => {
+  const hermesInit = { ...init, params: { ...init.params, protocolVersion: '2025-11-25' } }
+  const handler = createHandler({ sessionToken: 'test-token' })
+  assert.equal((await handler(hermesInit)).result.protocolVersion, PROTOCOL_VERSION)
+
+  const unsupported = createHandler({ sessionToken: 'test-token' })
+  assert.equal((await unsupported({ ...init, params: { ...init.params, protocolVersion: '2099-01-01' } })).error.code, -32602)
+})
+
 test('malformed requests, auth failures, and oversized frames fail closed', async () => {
   const handler = createHandler({ sessionToken: '' })
   assert.equal((await handler({ jsonrpc: '1.0', id: 1, method: 'ping' })).error.code, -32600)
